@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `total_amount` real DEFAULT 0 NOT NULL;

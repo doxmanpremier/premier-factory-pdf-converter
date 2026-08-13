@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `factory` text DEFAULT 'Cline''s Welding and Fabrication' NOT NULL;
