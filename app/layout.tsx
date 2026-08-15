@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Premier Factory Quote Converter",
-  description: "Convert Cline's, Halton, AmeriKooler, and Low Temp Industries factory quote PDFs into AutoQuotes-ready files.",
+  description: "Convert Cline's, Halton, and Low Temp Industries factory quote PDFs into AutoQuotes-ready files.",
   other: {
     "codex-preview": "development",
   },

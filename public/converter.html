@@ -74,13 +74,17 @@ button.secondary:hover { background:#cfd0d2; }
 .danger { color:#a92d39; background:#fae9eb; }
 .danger:hover { background:#f4d5d9; }
 .table-wrap { overflow:auto; margin:20px 0; border:1px solid var(--line); border-radius:12px; }
-table { width:100%; min-width:930px; border-collapse:collapse; }
+table { width:100%; min-width:1380px; border-collapse:collapse; }
 th { padding:11px 9px; color:#fff; background:#5a5c61; text-align:left; font-size:12px; letter-spacing:.03em; }
 td { padding:7px; border-top:1px solid var(--line); vertical-align:top; }
-input.cell { width:100%; min-width:70px; padding:9px; border:1px solid #cfd9e6; border-radius:7px; font:inherit; }
-td:nth-child(3) input { min-width:300px; }
-td:nth-child(4) input { min-width:220px; }
-td:nth-child(5) input { min-width:170px; }
+input.cell,textarea.cell { width:100%; min-width:70px; padding:9px; border:1px solid #cfd9e6; border-radius:7px; font:inherit; }
+textarea.cell { min-height:92px; resize:vertical; white-space:pre-wrap; }
+td:nth-child(2) input { min-width:220px; }
+td:nth-child(3) input { min-width:220px; }
+td:nth-child(4) input { min-width:90px; }
+td:nth-child(5) textarea { min-width:410px; }
+td:nth-child(6) input { min-width:110px; }
+td:nth-child(7) textarea { min-width:260px; }
 .remove { padding:8px 10px; color:#a92d39; background:#fae9eb; }
 .actions { justify-content:flex-start; }
 .primary-export { padding:15px 26px; font-size:17px; box-shadow:0 8px 22px rgba(189,20,32,.24); }
@@ -114,12 +118,12 @@ td:nth-child(5) input { min-width:170px; }
 </style></head><body>
 <main class="shell">
 <header class="brand-bar"><a class="premier-brand" href="https://premierfsg.com/" target="_blank" rel="noopener"><img src="https://premierfsg.com/wp-content/uploads/2024/02/premiere_logomark-chrome.png" alt="Premier Foodservice Group logo"><span class="premier-wordmark"><strong>PREMIER</strong><small>FOODSERVICE GROUP</small></span></a><span class="brand-tool">PROJECT TOOLS</span></header>
-<section class="hero"><div><p class="eyebrow">CUSTOM FACTORY PDF QUOTES</p><h1>Factory Quote Converter</h1><div class="factory-list" aria-label="Supported factories"><span class="factory-pill">Cline's Welding and Fabrication</span><span class="factory-pill">Halton</span><span class="factory-pill">AmeriKooler</span><span class="factory-pill">Low Temp Industries</span></div><p class="subhead">Upload supported factory quote PDFs. The converter identifies each factory, combines the items, and prepares one headerless CSV or Excel file for import.</p><div class="hero-nav"><button id="pastProjectsButton" class="past-tab" type="button">Past Projects</button><form method="post" action="/logout"><button class="secondary" type="submit">Log Out</button></form></div></div><div class="format-card"><span>A</span> Item number<span>B</span> Quantity<span>C</span> Specification / category<span>D</span> Factory<span>E</span> Quote model</div></section>
+<section class="hero"><div><p class="eyebrow">CUSTOM FACTORY PDF QUOTES</p><h1>Factory Quote Converter</h1><div class="factory-list" aria-label="Supported factories"><span class="factory-pill">Cline's Welding and Fabrication</span><span class="factory-pill">Halton</span><span class="factory-pill">Low Temp Industries</span></div><p class="subhead">Upload supported factory quote PDFs. The converter identifies each factory, combines the items, and prepares one headerless CSV or Excel file plus a matching category workbook.</p><div class="hero-nav"><button id="pastProjectsButton" class="past-tab" type="button">Past Projects</button><form method="post" action="/logout"><button class="secondary" type="submit">Log Out</button></form></div></div><div class="format-card"><span>A</span> D on every row<span>B</span> Item number<span>C</span> 0 on every row<span>D</span> Manufacturer<span>E</span> Quote / revision / item model<span>F</span> Quantity<span>G</span> Full specifications<span>H</span> Unit price<span>I</span> 0 on every row</div></section>
 <section id="pastProjectsPanel" class="projects-panel" hidden><div class="projects-panel-head"><div><p class="eyebrow">SAVED FOR REFERENCE</p><h2>Past Projects</h2><p>Search by job name, filter project details, or change the order.</p></div><button id="closePastProjects" class="secondary" type="button">Close</button></div><div class="project-tools"><label class="project-search-field" for="projectSearch">Search by job name<input id="projectSearch" type="search" placeholder="Enter a project or job name" autocomplete="off"></label><label for="projectDealerFilter">Dealer<input id="projectDealerFilter" type="text" list="pastDealerOptions" placeholder="All dealers" autocomplete="off"></label><label for="projectEstimatorFilter">Estimator<input id="projectEstimatorFilter" type="text" list="pastEstimatorOptions" placeholder="All estimators" autocomplete="off"></label><label for="projectSalesRepFilter">Sales rep<input id="projectSalesRepFilter" type="text" list="pastSalesRepOptions" placeholder="All sales reps" autocomplete="off"></label><label for="projectBidDateFilter">Bid date<input id="projectBidDateFilter" type="date"></label><label for="projectUploadDateFilter">Upload date<input id="projectUploadDateFilter" type="date"></label><label for="projectSortField">Sort by<select id="projectSortField"><option value="bidDate">Bid date</option><option value="uploadDate">Upload date</option><option value="salesRep">Sales rep</option><option value="dealer">Dealer</option><option value="estimator">Estimator</option></select></label><label for="projectSortDirection">Order<select id="projectSortDirection"><option value="desc">Newest / Z–A</option><option value="asc">Oldest / A–Z</option></select></label><div class="project-tools-footer"><button id="clearProjectFilters" class="secondary" type="button">Clear Filters</button><p id="projectCount" class="project-count"></p></div><datalist id="pastDealerOptions"></datalist><datalist id="pastEstimatorOptions"></datalist><datalist id="pastSalesRepOptions"></datalist></div><p id="projectMessage" class="project-message" aria-live="polite"></p><div id="pastProjectsList" class="project-list"></div></section>
-<section id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Choose one or more PDF quotes"><div class="upload-icon">PDF</div><h2>Drop all factory quotes for this project here</h2><p>Choose one or multiple Cline's, Halton, AmeriKooler, and LTI PDFs. They will export together as one file.</p><label for="fileInput" class="file-label">Choose PDF(s)</label><input id="fileInput" type="file" accept="application/pdf,.pdf" multiple></section>
+<section id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Choose one or more PDF quotes"><div class="upload-icon">PDF</div><h2>Drop all factory quotes for this project here</h2><p>Choose one or multiple Cline's, Halton, and LTI PDFs. They will export together as one file.</p><label for="fileInput" class="file-label">Choose PDF(s)</label><input id="fileInput" type="file" accept="application/pdf,.pdf" multiple></section>
 <p id="status" class="status" aria-live="polite"></p>
 <section id="quoteBundle" class="quote-bundle" hidden><div class="quote-bundle-head"><div><p class="eyebrow">ONE PROJECT · ONE EXPORT</p><h2>Quotes in this project</h2><p id="quoteBundleSummary"></p></div><div class="quote-bundle-actions"><button id="addAnotherQuote" type="button">+ Add Another PDF</button><button id="startNewProject" class="secondary" type="button">Start New Project</button></div></div><div id="quoteList" class="quote-list"></div></section>
-<section id="results" class="results" hidden><div class="results-head"><div><p class="eyebrow">REVIEW BEFORE DOWNLOADING</p><h2 id="fileName">Extracted items</h2></div><button id="addRow" class="secondary" type="button">+ Add row</button></div><div class="table-wrap"><table><thead><tr><th>A · Item</th><th>B · Qty</th><th>C · Specification</th><th>D · Manufacturer</th><th>E · Model</th><th></th></tr></thead><tbody id="rows"></tbody></table></div><div class="actions"><button id="downloadCsv" class="primary-export" type="button">Download Combined CSV</button><button id="downloadXlsx" class="secondary" type="button">Download Combined Excel (.xlsx)</button></div><p class="note">Every quote shown above is included in this one headerless file. You can edit any extracted cell before downloading.</p><section class="save-panel"><div class="save-panel-head"><p class="eyebrow">PROJECT REFERENCE</p><h2>Save this project</h2><p>Save all quote rows and project details together so you can find them later under Past Projects.</p></div><div class="project-form"><div class="field full"><label for="projectName">Project name</label><input id="projectName" type="text" maxlength="160" placeholder="Example: New North Middle School" autocomplete="off"></div><div class="field full"><label for="dealerInput">Dealers</label><div class="dealer-entry"><input id="dealerInput" type="text" maxlength="160" list="dealerOptions" placeholder="Search or type a dealer name" autocomplete="off"><button id="addDealer" class="secondary" type="button">Add Dealer</button></div><div id="dealerChips" class="dealer-chips" aria-live="polite"></div><p class="field-hint">Start typing to search the list. Add as many dealers as needed.</p></div><div class="field full"><label for="premierEstimator">Premier estimators</label><div class="dealer-entry"><input id="premierEstimator" type="text" maxlength="160" list="estimatorOptions" placeholder="Search or type an estimator" autocomplete="off"><button id="addEstimator" class="secondary" type="button">Add Estimator</button></div><div id="estimatorChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><label for="premierSalesRep">Premier sales reps</label><div class="dealer-entry"><input id="premierSalesRep" type="text" maxlength="160" list="salesRepOptions" placeholder="Search or type a sales rep" autocomplete="off"><button id="addSalesRep" class="secondary" type="button">Add Sales Rep</button></div><div id="salesRepChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><span class="field-label">Factories in this project</span><div id="projectFactories" class="factory-checks"><label><input type="checkbox" value="Cline's Welding and Fabrication">Cline's Welding and Fabrication</label><label><input type="checkbox" value="Halton">Halton</label><label><input type="checkbox" value="AmeriKooler">AmeriKooler</label><label><input type="checkbox" value="Low Temp Industries">Low Temp Industries</label></div><p class="field-hint">Factories are selected automatically from the uploaded PDFs. You can adjust them before saving.</p></div><div class="field"><label for="totalAmount">Total dollar amount</label><input id="totalAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="specificationStatus">Specification</label><select id="specificationStatus"><option>Prime Spec</option><option>Approved Alternate</option><option>Unapproved Alternate</option></select></div><div class="field"><label for="uploadDate">Upload date</label><input id="uploadDate" type="date"></div><div class="field"><label for="bidDate">Bid date</label><input id="bidDate" type="date"></div></div><datalist id="dealerOptions"></datalist><datalist id="estimatorOptions"></datalist><datalist id="salesRepOptions"></datalist><div class="save-actions"><button id="saveProject" type="button">Save Project</button><p id="saveMessage" class="save-message" aria-live="polite"></p></div></section></section>
+<section id="results" class="results" hidden><div class="results-head"><div><p class="eyebrow">REVIEW BEFORE DOWNLOADING</p><h2 id="fileName">Extracted items</h2></div><button id="addRow" class="secondary" type="button">+ Add row</button></div><div class="table-wrap"><table><thead><tr><th>B · Item</th><th>D · Manufacturer</th><th>E · Model</th><th>F · Qty</th><th>G · Full specifications</th><th>H · Unit price</th><th>Category workbook</th><th></th></tr></thead><tbody id="rows"></tbody></table></div><div class="actions"><button id="downloadCsv" class="primary-export" type="button">Download CSV + Categories</button><button id="downloadXlsx" class="secondary" type="button">Download Combined Excel (.xlsx)</button></div><p class="note">The main headerless file exports A-I in the new AutoQuotes order. The category workbook follows the exact same row order. You can edit every extracted value before downloading.</p><section class="save-panel"><div class="save-panel-head"><p class="eyebrow">PROJECT REFERENCE</p><h2>Save this project</h2><p>Save all quote rows and project details together so you can find them later under Past Projects.</p></div><div class="project-form"><div class="field full"><label for="projectName">Project name</label><input id="projectName" type="text" maxlength="160" placeholder="Example: New North Middle School" autocomplete="off"></div><div class="field full"><label for="dealerInput">Dealers</label><div class="dealer-entry"><input id="dealerInput" type="text" maxlength="160" list="dealerOptions" placeholder="Search or type a dealer name" autocomplete="off"><button id="addDealer" class="secondary" type="button">Add Dealer</button></div><div id="dealerChips" class="dealer-chips" aria-live="polite"></div><p class="field-hint">Start typing to search the list. Add as many dealers as needed.</p></div><div class="field full"><label for="premierEstimator">Premier estimators</label><div class="dealer-entry"><input id="premierEstimator" type="text" maxlength="160" list="estimatorOptions" placeholder="Search or type an estimator" autocomplete="off"><button id="addEstimator" class="secondary" type="button">Add Estimator</button></div><div id="estimatorChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><label for="premierSalesRep">Premier sales reps</label><div class="dealer-entry"><input id="premierSalesRep" type="text" maxlength="160" list="salesRepOptions" placeholder="Search or type a sales rep" autocomplete="off"><button id="addSalesRep" class="secondary" type="button">Add Sales Rep</button></div><div id="salesRepChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><span class="field-label">Factories in this project</span><div id="projectFactories" class="factory-checks"><label><input type="checkbox" value="Cline's Welding and Fabrication">Cline's Welding and Fabrication</label><label><input type="checkbox" value="Halton">Halton</label><label><input type="checkbox" value="Low Temp Industries">Low Temp Industries</label></div><p class="field-hint">Factories are selected automatically from the uploaded PDFs. You can adjust them before saving.</p></div><div class="field"><label for="totalAmount">Total dollar amount</label><input id="totalAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="specificationStatus">Specification</label><select id="specificationStatus"><option>Prime Spec</option><option>Approved Alternate</option><option>Unapproved Alternate</option></select></div><div class="field"><label for="uploadDate">Upload date</label><input id="uploadDate" type="date"></div><div class="field"><label for="bidDate">Bid date</label><input id="bidDate" type="date"></div></div><datalist id="dealerOptions"></datalist><datalist id="estimatorOptions"></datalist><datalist id="salesRepOptions"></datalist><div class="save-actions"><button id="saveProject" type="button">Save Project</button><p id="saveMessage" class="save-message" aria-live="polite"></p></div></section></section>
 </main>
 <script>/**
  * @licstart The following is the entire license notice for the
@@ -188,13 +192,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script><script src="/project-options.js"></script><script>/* global pdfjsLib, XLSX */
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
-const MANUFACTURER = "Cline's Welding and Fabrication";
+const MANUFACTURER = "CWF";
 const MODEL = "CUSTOM FABRICATION";
 const FACTORIES = {
-  clines:{label:"Cline's Welding and Fabrication",manufacturer:"Cline's Welding and Fabrication",model:"CUSTOM FABRICATION"},
+  clines:{label:"Cline's Welding and Fabrication",manufacturer:"CWF",model:"CUSTOM FABRICATION"},
   halton:{label:"Halton",manufacturer:"Halton",model:"Custom"},
-  amerikooler:{label:"AmeriKooler",manufacturer:"AmeriKooler",model:"Custom"},
-  lti:{label:"Low Temp Industries",manufacturer:"Low Temp Industries",model:"Quote"},
+  lti:{label:"Low Temp Industries",manufacturer:"LTI",model:"Quote"},
 };
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
@@ -280,7 +283,7 @@ async function processFiles(files) {
       quoteImports.push(quote);
       currentFactoryKey=quote.factoryKey;
       currentDefaultModel=quote.model;
-      quote.rows.forEach(row=>addEditableRow(row));
+      quote.rows.forEach(row=>addEditableRow({...row,factoryKey:quote.factoryKey}));
       imported.push(quote);
     } catch (error) {
       failed.push(`${file.name}: ${error.message||"The PDF could not be read."}`);
@@ -314,7 +317,7 @@ async function processPdf(file) {
     const factoryKey=detectFactory(allLines);
     const factory=FACTORIES[factoryKey];
     const metadata=extractQuoteMetadata(allLines,factoryKey,file.name);
-    const rows=factoryKey==="halton" ? extractHaltonRows(pageTextItems,metadata.model) : factoryKey==="amerikooler" ? extractAmerikoolerRows(allLines,metadata.model) : factoryKey==="lti" ? extractLtiRows(allLines,metadata.model) : extractRows(allLines,metadata.model);
+    const rows=factoryKey==="halton" ? extractHaltonRows(pageTextItems,metadata) : factoryKey==="lti" ? extractLtiRows(allLines,metadata) : extractClinesRows(pageTextItems,metadata);
     if (!rows.length) throw new Error(`No quote rows were found in this ${factory.label} PDF.`);
     const projectDetails = extractProjectDetails(allLines,{factoryKey,pages:pageTextItems});
     return {id:browserUuid(),fileName:file.name,factoryKey,factory:factory.label,model:metadata.model,quoteNumber:metadata.quoteNumber,revision:metadata.revision,projectName:projectDetails.projectName,totalAmount:projectDetails.totalAmount,rows};
@@ -335,8 +338,8 @@ function detectFactory(lines) {
   const text=lines.join("\n");
   if (/Low\s+Temp\s+Industries|\bLTI,?\s+Inc\b|quotes\.lowtempind\.com/i.test(text)) return "lti";
   if (/\bHalton\b/i.test(text) || /Quote\s+Item\s+No\.?[\s\S]{0,80}Description[\s\S]{0,80}Quantity/i.test(text)) return "halton";
-  if (/AmeriKooler/i.test(text)) return "amerikooler";
-  return "clines";
+  if (/CLINE'?S\s+WELDING|clineswelding|ACTIVITY\s+DESCRIPTION\s+QTY\s+RATE\s+AMOUNT/i.test(text)) return "clines";
+  throw new Error("This PDF is not a supported Cline's, Halton, or LTI quote.");
 }
 
 function extractQuoteMetadata(lines,factoryKey,fileName="") {
@@ -344,23 +347,37 @@ function extractQuoteMetadata(lines,factoryKey,fileName="") {
   if (factoryKey==="clines") {
     const match=text.match(/\b(?:Estimate|Quote)\s*(?:#|No\.?|Number)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]*)/i) || fileName.match(/(?:Qte|Quote)[-_ ]*([A-Z0-9][A-Z0-9._/-]*)/i);
     const quoteNumber=normalizeQuoteNumber(match?.[1]);
-    return {quoteNumber,revision:"",model:quoteNumber?`Custom Fabrication from Quote ${quoteNumber}`:"Custom Fabrication"};
+    return {quoteNumber,revision:"",model:quoteNumber?`Q#${quoteNumber}`:"Cline's Quote"};
   }
   if (factoryKey==="halton") {
     const match=text.match(/Quote\s+No\.?\s*(?:QUOTE\s*)?([A-Z0-9._/-]+)/i) || fileName.match(/Qte[-_ ]*([A-Z0-9._/-]+)/i);
     const quoteNumber=normalizeQuoteNumber(match?.[1]);
-    return {quoteNumber,revision:"",model:quoteNumber?`Custom from Quote${quoteNumber}`:"Custom"};
+    const revisionDate=text.match(/Revision\s+No\.?\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i)?.[1]||"";
+    const revision=formatRevisionDate(revisionDate);
+    return {quoteNumber,revision,model:quoteNumber?`Q#${quoteNumber}${revision?` Rev${revision}`:""}`:"Halton Quote"};
   }
   if (factoryKey==="lti") {
     const match=text.match(/\bQuote\s+(\d{3,})\b/i) || fileName.match(/\b(\d{3,})\b/);
     const quoteNumber=normalizeQuoteNumber(match?.[1]);
-    return {quoteNumber,revision:"",model:quoteNumber?`Quote ${quoteNumber}`:"LTI Quote"};
+    const revisionMatch=text.match(/\b(?:Revision|Rev\.?)\s*(?:No\.?|#)?\s*:?\s*([A-Z0-9.-]+)/i) || fileName.match(/[-_ ]Rev(?:ision)?[-_ ]?([A-Z0-9.-]+)/i);
+    const revision=String(revisionMatch?.[1]||"").replace(/[^A-Z0-9.-]/gi,"").trim();
+    return {quoteNumber,revision,model:quoteNumber?`Q#${quoteNumber}${revision?` Rev${revision}`:""}`:"LTI Quote"};
   }
-  const quoteMatch=text.match(/Quote\s*#\s*:\s*([A-Z0-9][A-Z0-9\s._/-]*?)(?=\s+Date\b|\s*$)/i) || fileName.match(/\b(\d{2}-\d{4,})\b/);
-  const revisionMatch=text.match(/\bRevision\s*:\s*(\d+)\b/i) || fileName.match(/[-_ ]Rev(?:ision)?[-_ ]?(\d+)/i);
-  const quoteNumber=normalizeQuoteNumber(quoteMatch?.[1]);
-  const revision=String(revisionMatch?.[1]||"").replace(/[^A-Z0-9._/-]/gi,"").trim();
-  return {quoteNumber,revision,model:quoteNumber?`Quote #${quoteNumber}${revision?` REV ${revision}`:""}`:"AmeriKooler Quote"};
+  throw new Error("This PDF is not a supported factory quote.");
+}
+
+function formatRevisionDate(value) {
+  const match=String(value||"").trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/);
+  if (!match) return "";
+  return `${Number(match[1])}.${String(Number(match[2])).padStart(2,"0")}.${match[3].slice(-2)}`;
+}
+
+function modelForItem(factoryKey,metadata,item) {
+  const quote=metadata?.quoteNumber||"";
+  const revision=metadata?.revision||"";
+  if (factoryKey==="halton") return `${quote?`Q#${quote}`:"Halton Quote"}${revision?` Rev${revision}`:""}${item?` Item#${item}`:""}`;
+  if (factoryKey==="lti") return `${quote?`Q#${quote}`:"LTI Quote"}${revision?` Rev${revision}`:""}${item?` Item ${item}`:""}`;
+  return `${quote?`Q#${quote}`:"Cline's Quote"}${item?` Item${item}`:" Freight"}`;
 }
 
 function normalizeQuoteNumber(value) {
@@ -380,7 +397,7 @@ function groupedTextItems(items) {
   return groups.sort((a,b)=>b.y-a.y).map(group=>({...group,items:group.items.sort((a,b)=>a.x-b.x)}));
 }
 
-function extractHaltonRows(pages,model) {
+function extractHaltonRows(pages,metadata) {
   const allItems=pages.flat().map(item=>({x:item.transform[4],text:String(item.str||"").replace(/\s+/g," ").trim()})).filter(item=>item.text);
   const headerX=(pattern,fallback)=>allItems.find(item=>pattern.test(item.text))?.x??fallback;
   const itemX=headerX(/^Item No\.?$/i,97);
@@ -389,53 +406,73 @@ function extractHaltonRows(pages,model) {
   const unitPriceX=headerX(/^Unit Price$/i,451);
   const totalPriceX=headerX(/^Total Price$/i,510);
   const rows=[];
+  let current=null;
+  const finishCurrent=()=>{
+    if (!current) return;
+    current.spec=current.specLines.join(" ").replace(/\s+/g," ").trim();
+    delete current.specLines;
+    rows.push(current);
+    current=null;
+  };
   for (const page of pages) {
+    let inQuoteTable=false;
     for (const group of groupedTextItems(page)) {
       const range=(minimum,maximum)=>group.items.filter(item=>item.x>=minimum&&item.x<maximum).map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      const wholeLine=group.items.map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      if (/Description[\s\S]*Quantity[\s\S]*Unit Price/i.test(wholeLine) || group.items.some(item=>/^Item No\.?$/i.test(item.text))) { inQuoteTable=true; continue; }
+      if (!inQuoteTable) continue;
       const item=normalizeItemIdentifier(range(itemX-4,descriptionX-4));
-      const spec=range(descriptionX-4,quantityX-6);
+      const category=range(descriptionX-4,quantityX-6);
       const qty=range(quantityX-10,unitPriceX-6).replace(/[^\d.]/g,"");
-      const totalPrice=range(totalPriceX-8,Infinity);
-      if (!item || !spec || !/^\d+(?:\.\d+)?$/.test(qty)) continue;
-      rows.push({item,qty,spec,manufacturer:FACTORIES.halton.manufacturer,model,type:"equipment",price:normalizePrice(totalPrice)});
+      const unitPrice=range(unitPriceX-8,totalPriceX-6);
+      if (item && category && /^\d+(?:\.\d+)?$/.test(qty)) {
+        finishCurrent();
+        current={item,qty,category,specLines:[],manufacturer:FACTORIES.halton.manufacturer,model:modelForItem("halton",metadata,item),type:"equipment",price:normalizePrice(unitPrice)};
+        continue;
+      }
+      if (!current) continue;
+      const detail=range(descriptionX-4,quantityX-6);
+      if (detail && !/^(?:Description|Item No\.?|Quantity|Unit Price|Total Price|Quote|Entered By|Comments|Total)$/i.test(detail)) current.specLines.push(detail);
     }
   }
+  finishCurrent();
   return rows;
 }
 
-function extractAmerikoolerRows(lines,model) {
-  const text=lines.join("\n");
-  const dimensionMatch=text.match(/Actual\s+Overall\s+Dimension\s*:\s*(.+?)(?:\s*\(Rectangular\)|\s*$)/im);
-  const dimensions=String(dimensionMatch?.[1]||"").replace(/\s+/g," ").replace(/'\s*-\s*/g,"'-").trim();
-  const priceStart=text.search(/Box\s+Price\s*:/i);
-  const priceSection=priceStart>=0 ? text.slice(priceStart) : "";
-  const totalOffset=priceSection.search(/\n\s*Total\s*:/i);
-  const orderedPrices=[...(totalOffset>=0?priceSection.slice(0,totalOffset):priceSection).matchAll(/\$\s*([\d,]+(?:\.\d{2})?)/g)].map(match=>normalizePrice(match[1]));
-  const panelsPrice=orderedPrices[0]||"";
-  const equipmentPrice=orderedPrices[1]||"";
-  if (!dimensions) throw new Error("The AmeriKooler quote dimensions could not be found.");
-  return [
-    {item:"1",qty:"1",spec:`PANELS ONLY, ${dimensions}`,manufacturer:FACTORIES.amerikooler.manufacturer,model,type:"equipment",price:panelsPrice},
-    {item:"2",qty:"1",spec:"Equipment",manufacturer:FACTORIES.amerikooler.manufacturer,model,type:"equipment",price:equipmentPrice},
-  ];
+function cleanSpecificationLine(value) {
+  return String(value||"").replace(/\s+/g," ").trim();
 }
 
-function extractLtiRows(lines,model) {
+function extractLtiRows(lines,metadata) {
   const rows=[];
   const money="(?:\\$?\\(?[\\d,]+(?:\\.\\d{2})?\\)?)";
   const itemIdentifier="((?=[A-Z0-9._/-]*\\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*)";
   const rowPattern=new RegExp(`^${itemIdentifier}\\s+(\\d+(?:\\.\\d+)?)\\s+(.+?)(?:\\s+${money}\\s+${money})?$`,`i`);
+  let current=null;
+  const finishCurrent=()=>{
+    if (!current) return;
+    current.spec=current.specLines.join(" ").replace(/\s+/g," ").trim();
+    delete current.specLines;
+    rows.push(current);
+    current=null;
+  };
   for (const raw of lines) {
     const line=String(raw||"").replace(/\s+/g," ").trim();
+    if (/^Total\b/i.test(line)) { finishCurrent(); break; }
     const match=line.match(rowPattern);
-    if (!match) continue;
-    const item=normalizeItemIdentifier(match[1]);
-    const qty=match[2];
-    const spec=match[3].replace(/\s+\$?[\d,]+(?:\.\d{2})?\s+\$?[\d,]+(?:\.\d{2})?$/," ").trim();
-    const priceMatch=line.match(/\s+\$?\(?[\d,]+(?:\.\d{2})?\)?\s+\$?\(?([\d,]+(?:\.\d{2})?)\)?\s*$/);
-    if (!item || !spec || /^(?:Item|Total)$/i.test(item)) continue;
-    rows.push({item,qty,spec,manufacturer:FACTORIES.lti.manufacturer,model,type:"equipment",price:normalizePrice(priceMatch?.[1])});
+    if (match) {
+      const item=normalizeItemIdentifier(match[1]);
+      const qty=match[2];
+      const category=match[3].replace(/\s+\$?[\d,]+(?:\.\d{2})?\s+\$?[\d,]+(?:\.\d{2})?$/," ").trim();
+      const priceMatch=line.match(/\s+\$?\(?([\d,]+(?:\.\d{2})?)\)?\s+\$?\(?[\d,]+(?:\.\d{2})?\)?\s*$/);
+      if (!item || !category || /^(?:Item|Total)$/i.test(item)) continue;
+      finishCurrent();
+      current={item,qty,category,specLines:[],manufacturer:FACTORIES.lti.manufacturer,model:modelForItem("lti",metadata,item),type:"equipment",price:normalizePrice(priceMatch?.[1])};
+      continue;
+    }
+    if (current && line && !/^(?:Quote per specs|Please note prices|Page\s+\d+|Quotation is based)/i.test(line)) current.specLines.push(line);
   }
+  finishCurrent();
   return rows;
 }
 
@@ -473,10 +510,11 @@ function extractLtiProjectName(pages) {
   return projectLines.join(" ").replace(/\s+,/g,",").replace(/,\s*$/,"").replace(/\s+/g," ").trim();
 }
 
-function extractRows(lines,model=MODEL) {
+function extractRows(lines,metadata={}) {
   const rows=[];
   let current=null;
   let pendingShipping=null;
+  let freightRow=null;
   let inTable=false;
   for (const raw of lines) {
     const line=raw.replace(/\s+/g," ").trim();
@@ -487,23 +525,27 @@ function extractRows(lines,model=MODEL) {
     if (equipment) {
       if (current) rows.push(current);
       const parsed=splitDescriptionAndNumbers(equipment.description);
-      current={item:equipment.item,qty:parsed.qty||"1",spec:parsed.description,manufacturer:MANUFACTURER,model,type:"equipment",price:parsed.price};
+      current={item:equipment.item,qty:parsed.qty||"1",spec:parsed.description,manufacturer:MANUFACTURER,model:modelForItem("clines",metadata,equipment.item),type:"equipment",price:parsed.price};
       pendingShipping=null;
       continue;
     }
     if (/^(?:\S+\s+)?(?:Shipping|Freight)\b/i.test(line)) {
       if (current) rows.push(current);
       current=null;
-      const maxItem=Math.max(0,...rows.map(r=>Number(r.item)||0));
       const netPrice=normalizePrice(line.match(/\$?([\d,]+(?:\.\d{2})?)\s+NET\b/i)?.[1]);
-      pendingShipping={item:String(maxItem+1),qty:"1",spec:shippingDescription(line),manufacturer:MANUFACTURER,model,type:"shipping",price:netPrice};
-      rows.push(pendingShipping);
+      if (!freightRow) {
+        freightRow={item:"",qty:"1",category:"Freight",spec:"Estimated freight to job site",manufacturer:MANUFACTURER,model:modelForItem("clines",metadata,""),type:"shipping",price:netPrice};
+        rows.push(freightRow);
+      } else if (netPrice) {
+        freightRow.price=netPrice;
+      }
+      pendingShipping=freightRow;
       continue;
     }
     if (current && current.type==="equipment" && line && !/^(DATE|Estimate)/i.test(line)) {
       const parsed=splitDescriptionAndNumbers(line);
       if (parsed.price) current.price=parsed.price;
-      if (parsed.description && !/^\d[\d,.]*$/.test(parsed.description)) current.spec += " " + parsed.description;
+      if (parsed.description && !/^\d[\d,.]*$/.test(parsed.description)) current.spec += "\n" + parsed.description;
     }
     if (pendingShipping) {
       const parsed=splitDescriptionAndNumbers(line);
@@ -511,7 +553,79 @@ function extractRows(lines,model=MODEL) {
     }
   }
   if (current) rows.push(current);
-  return rows.map(r=>({...r,spec:r.spec.replace(/\s+/g," ").trim()}));
+  return rows.map(row=>{
+    const spec=String(row.spec||"").split("\n").map(cleanSpecificationLine).filter(Boolean).join("\n");
+    const singleLineSpec=spec.replace(/\s*\n\s*/g," ").replace(/\s+/g," ").trim();
+    return {...row,spec:singleLineSpec,category:row.category||clinesCategoryFromSpec(singleLineSpec)};
+  });
+}
+
+function extractClinesRows(pages,metadata={}) {
+  const allItems=pages.flat().map(item=>({x:item.transform[4],text:String(item.str||"").replace(/\s+/g," ").trim()})).filter(item=>item.text);
+  const headerX=(pattern,fallback)=>allItems.find(item=>pattern.test(item.text))?.x??fallback;
+  const activityX=headerX(/^ACTIVITY$/i,72);
+  const descriptionX=headerX(/^DESCRIPTION$/i,164);
+  const quantityX=headerX(/^QTY$/i,390);
+  const rateX=headerX(/^RATE$/i,454);
+  const amountX=headerX(/^AMOUNT$/i,516);
+  const quantityRateBoundary=(quantityX+rateX)/2;
+  const rateAmountBoundary=(rateX+amountX)/2;
+  const rows=[];
+  let current=null;
+  let freightRow=null;
+  const finishCurrent=()=>{
+    if (!current) return;
+    current.spec=current.specLines.join(" ").replace(/\s+/g," ").trim();
+    current.category=clinesCategoryFromSpec(current.spec);
+    delete current.specLines;
+    rows.push(current);
+    current=null;
+  };
+  for (const page of pages) {
+    let inTable=false;
+    for (const group of groupedTextItems(page)) {
+      const range=(minimum,maximum)=>group.items.filter(item=>item.x>=minimum&&item.x<maximum).map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      const wholeLine=group.items.map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      if (/ACTIVITY[\s\S]*DESCRIPTION[\s\S]*QTY[\s\S]*RATE[\s\S]*AMOUNT/i.test(wholeLine)) { inTable=true; continue; }
+      if (!inTable) continue;
+      if (/^(?:SUBTOTAL|TAX|TOTAL|Accepted By)\b/i.test(wholeLine)) { finishCurrent(); break; }
+      const activity=range(activityX-8,descriptionX-6);
+      const description=range(descriptionX-6,quantityX-8);
+      const qty=range(quantityX-10,quantityRateBoundary).replace(/[^\d.]/g,"");
+      const rate=normalizePrice(range(quantityRateBoundary,rateAmountBoundary));
+      if (/^Equipment$/i.test(activity)) {
+        finishCurrent();
+        const equipment=parseEquipmentLine("Equipment "+description);
+        if (!equipment) continue;
+        current={item:equipment.item,qty:qty||"1",specLines:[equipment.description],manufacturer:MANUFACTURER,model:modelForItem("clines",metadata,equipment.item),type:"equipment",price:rate};
+        continue;
+      }
+      if (/^(?:Shipping|Freight)$/i.test(activity)) {
+        finishCurrent();
+        if (!freightRow) {
+          freightRow={item:"",qty:qty||"1",category:"Freight",spec:"Estimated freight to job site",manufacturer:MANUFACTURER,model:modelForItem("clines",metadata,""),type:"shipping",price:rate};
+          rows.push(freightRow);
+        } else if (rate) freightRow.price=rate;
+        continue;
+      }
+      const netPrice=normalizePrice(wholeLine.match(/\$?\s*([\d,]+(?:\.\d{2})?)\s+NET\b/i)?.[1]);
+      if (netPrice && freightRow) freightRow.price=netPrice;
+      if (current && description) current.specLines.push(description);
+    }
+  }
+  finishCurrent();
+  return rows;
+}
+
+function clinesCategoryFromSpec(spec) {
+  const text=String(spec||"").replace(/\s+/g," ").trim();
+  if (!text) return "";
+  const cutCandidates=[
+    text.search(/\s+\d+(?:\s*-\s*\d+)?\s*['"]/),
+    text.search(/\s+(?:with|and\s+over\s+shelf|pot\s+rack)\b/i),
+  ].filter(index=>index>0);
+  const category=(cutCandidates.length?text.slice(0,Math.min(...cutCandidates)):text).replace(/[,:;.-]+$/g,"").trim();
+  return category.split(/\s+/).map(word=>/^(?:S\/S|NSF|LED|ADA)$/i.test(word)?word.toUpperCase():/^\d/.test(word)?word:word.charAt(0).toUpperCase()+word.slice(1).toLowerCase()).join(" ");
 }
 
 function parseEquipmentLine(line) {
@@ -537,7 +651,7 @@ function normalizeItemIdentifier(value) {
 function splitDescriptionAndNumbers(text) {
   const number="(?:\\$?\\(?[\\d,]+(?:\\.\\d{2})?\\)?)";
   const match=text.match(new RegExp(`^(.*?)(?:\\s+)(${number})(?:\\s+)(${number})(?:\\s+)(${number})\\s*$`));
-  return match ? {description:match[1].trim(),qty:match[2].replace(/[^\d.]/g,""),price:normalizePrice(match[4])} : {description:text.trim(),qty:"",price:""};
+  return match ? {description:match[1].trim(),qty:match[2].replace(/[^\d.]/g,""),price:normalizePrice(match[3])} : {description:text.trim(),qty:"",price:""};
 }
 
 function normalizePrice(value) {
@@ -545,11 +659,6 @@ function normalizePrice(value) {
   if (!clean) return "";
   const amount=Number(clean);
   return Number.isFinite(amount)?amount.toFixed(2):"";
-}
-
-function shippingDescription(line) {
-  if (/estimated freight to job site/i.test(line)) return "Estimated freight to job site";
-  return "Estimated freight to job site";
 }
 
 function updateProjectFromQuotes() {
@@ -601,53 +710,55 @@ function resetCurrentProject() {
 function renderRows(rows) { rowsBody.innerHTML=""; rows.forEach(addEditableRow); }
 function addEditableRow(row={}) {
   const factory=FACTORIES[currentFactoryKey]||FACTORIES.clines;
-  row={item:"",qty:"1",spec:"",manufacturer:factory.manufacturer,model:currentDefaultModel||factory.model,price:"",...row};
+  row={item:"",qty:"1",spec:"",category:"",manufacturer:factory.manufacturer,model:currentDefaultModel||factory.model,price:"",factoryKey:currentFactoryKey,...row};
   const tr=document.createElement("tr");
-  tr.dataset.price=normalizePrice(row.price);
-  ["item","qty","spec","manufacturer","model"].forEach(key => { const td=document.createElement("td"); const input=document.createElement("input"); input.className="cell"; input.dataset.key=key; input.value=key==="item"?normalizeItemIdentifier(row[key]):row[key]??""; if(key==="item") input.addEventListener("blur",()=>{input.value=normalizeItemIdentifier(input.value);}); td.appendChild(input); tr.appendChild(td); });
+  tr.dataset.factoryKey=row.factoryKey||currentFactoryKey;
+  ["item","manufacturer","model","qty","spec","price","category"].forEach(key => {
+    const td=document.createElement("td");
+    const input=document.createElement(key==="spec"||key==="category"?"textarea":"input");
+    input.className="cell";
+    input.dataset.key=key;
+    input.value=key==="item"?normalizeItemIdentifier(row[key]):key==="price"?(normalizePrice(row[key])||"0.00"):row[key]??"";
+    if (key==="item") input.addEventListener("blur",()=>{input.value=normalizeItemIdentifier(input.value);});
+    if (key==="price") { input.type="number"; input.min="0"; input.step="0.01"; input.inputMode="decimal"; }
+    td.appendChild(input); tr.appendChild(td);
+  });
   const td=document.createElement("td"); const remove=document.createElement("button"); remove.type="button"; remove.className="remove"; remove.textContent="Remove"; remove.addEventListener("click",()=>tr.remove()); td.appendChild(remove); tr.appendChild(td); rowsBody.appendChild(tr);
 }
-function tableData() { return [...rowsBody.querySelectorAll("tr")].map(tr => [...tr.querySelectorAll("input")].map((input,index) => index===0?normalizeItemIdentifier(input.value):input.value.trim())); }
-function priceData() { return [...rowsBody.querySelectorAll("tr")].map(tr => { const value=normalizePrice(tr.dataset.price); return [value===""?"":Number(value)]; }); }
-function factoryPriceTotals() {
-  return [
-    ["clines","Cline's"],
-    ["lti","LTI"],
-    ["halton","Halton"],
-    ["amerikooler","AmeriKooler"],
-  ].map(([factoryKey,label])=>{
-    const quotes=quoteImports.filter(quote=>quote.factoryKey===factoryKey);
-    const totals=quotes.filter(quote=>quote.totalAmount!==null&&quote.totalAmount!=="").map(quote=>Number(quote.totalAmount)).filter(Number.isFinite);
-    return [label,quotes.length&&totals.length?totals.reduce((sum,total)=>sum+total,0):""];
-  });
+function editableRows() {
+  return [...rowsBody.querySelectorAll("tr")].map(tr=>Object.fromEntries([...tr.querySelectorAll("[data-key]")].map(input=>[input.dataset.key,input.value.trim()])));
+}
+function buildExportRow(row) { return ["D",normalizeItemIdentifier(row.item),0,row.manufacturer,row.model,row.qty||"1",row.spec,Number(normalizePrice(row.price)||0),0]; }
+function tableData() { return editableRows().map(buildExportRow); }
+function categoryData() { return editableRows().map(row=>[row.category]); }
+function savedProjectData() {
+  const categories=categoryData();
+  return tableData().map((row,index)=>[...row.map(value=>String(value)),categories[index][0]]);
 }
 
-function downloadPriceWorkbook() {
+function downloadCategoryWorkbook() {
   const wb=XLSX.utils.book_new();
-  const prices=priceData();
-  const ws=XLSX.utils.aoa_to_sheet(prices);
-  factoryPriceTotals().forEach(([label,total],index)=>{
-    ws[`D${index+1}`]={t:"s",v:label};
-    if (total!=="") ws[`E${index+1}`]={t:"n",v:total,z:"0.00"};
-  });
-  ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:Math.max(prices.length-1,3),c:4}});
-  ws["!cols"]=[{wch:16},{wch:3},{wch:3},{wch:16},{wch:16}];
-  Object.keys(ws).filter(address=>/^A\d+$/.test(address)&&ws[address].t==="n").forEach(address=>{ws[address].z="0.00";});
-  XLSX.utils.book_append_sheet(wb,ws,"Prices");
-  XLSX.writeFile(wb,"Factory AQ price list.xlsx");
+  const ws=XLSX.utils.aoa_to_sheet(categoryData());
+  ws["!cols"]=[{wch:48}];
+  XLSX.utils.book_append_sheet(wb,ws,"Categories");
+  XLSX.writeFile(wb,"Factory AQ category list.xlsx");
 }
 
 document.getElementById("addRow").addEventListener("click",()=>addEditableRow());
 document.getElementById("downloadXlsx").addEventListener("click",()=>{
   const wb=XLSX.utils.book_new(); const ws=XLSX.utils.aoa_to_sheet(tableData());
-  ws["!cols"]=[{wch:12},{wch:10},{wch:58},{wch:31},{wch:23}]; XLSX.utils.book_append_sheet(wb,ws,"Import");
+  ws["!cols"]=[{wch:5},{wch:13},{wch:5},{wch:31},{wch:34},{wch:9},{wch:88},{wch:14},{wch:5}];
+  Object.keys(ws).filter(address=>/^H\d+$/.test(address)&&ws[address].t==="n").forEach(address=>{ws[address].z="0.00";});
+  XLSX.utils.book_append_sheet(wb,ws,"Import");
   XLSX.writeFile(wb,"Factory AQ Conversion.xlsx");
+  downloadCategoryWorkbook();
+  setStatus("Downloaded the new A-I Excel file and matching category workbook.",false,true);
 });
 document.getElementById("downloadCsv").addEventListener("click",()=>{
   const csv=tableData().map(row=>row.map(csvCell).join(",")).join("\r\n")+"\r\n";
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); a.download="Factory AQ Conversion.csv"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-  downloadPriceWorkbook();
-  setStatus("Downloaded the unchanged AQ Import CSV and the matching Excel price list.",false,true);
+  downloadCategoryWorkbook();
+  setStatus("Downloaded the new A-I CSV and matching category workbook.",false,true);
 });
 document.getElementById("saveProject").addEventListener("click",saveCurrentProject);
 
@@ -757,7 +868,7 @@ async function saveCurrentProject() {
     uploadDate:document.getElementById("uploadDate").value,
     bidDate:document.getElementById("bidDate").value,
     sourceFile:sourceFileName,
-    items:tableData(),
+    items:savedProjectData(),
     quotes:quoteImports.map(quote=>({fileName:quote.fileName,factory:quote.factory,quoteNumber:quote.quoteNumber||"",revision:quote.revision||"",model:quote.model||"",projectName:quote.projectName||"",totalAmount:quote.totalAmount,rowCount:Number(quote.rowCount||quote.rows?.length||0)})),
   };
   if (!payload.name.trim()) return setSaveMessage("Enter a project name before saving.",true);
@@ -853,13 +964,12 @@ function renderPastProjects(projects) {
 }
 
 function openSavedProject(project) {
-  const keys=["item","qty","spec","manufacturer","model"];
   const savedFactories=Array.isArray(project.factories)&&project.factories.length?project.factories:[project.factory||FACTORIES.clines.label];
   const fallbackFactory=savedFactories.find(label=>Object.values(FACTORIES).some(factory=>factory.label===label))||FACTORIES.clines.label;
   quoteImports=Array.isArray(project.quotes)&&project.quotes.length?project.quotes.map(quote=>({...quote,id:browserUuid(),factoryKey:Object.entries(FACTORIES).find(([,factory])=>factory.label===quote.factory)?.[0]||"clines"})):[{id:browserUuid(),fileName:project.sourceFile||"Saved quote",factory:fallbackFactory,factoryKey:Object.entries(FACTORIES).find(([,factory])=>factory.label===fallbackFactory)?.[0]||"clines",model:project.items?.[0]?.[4]||FACTORIES.clines.model,totalAmount:project.totalAmount,rowCount:project.items.length}];
   currentFactoryKey=quoteImports.at(-1)?.factoryKey||"clines";
   currentDefaultModel=quoteImports.at(-1)?.model||FACTORIES[currentFactoryKey].model;
-  renderRows(project.items.map(row=>Object.fromEntries(keys.map((key,index)=>[key,row[index]||""]))));
+  renderRows(project.items.map(savedRowToEditable));
   sourceFileName=project.sourceFile||"";
   sourceBaseName=(project.sourceFile||project.name||"Clines factory quote").replace(/\.pdf$/i,"");
   document.getElementById("fileName").textContent=`${project.name} · ${project.items.length} rows`;
@@ -874,6 +984,15 @@ function openSavedProject(project) {
   document.getElementById("bidDate").value=project.bidDate||"";
   quoteBundle.hidden=false; renderQuoteBundle();
   results.hidden=false; pastProjectsPanel.hidden=true; setStatus(`Opened saved project: ${project.name}`,false,true); results.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function savedRowToEditable(row) {
+  if (Array.isArray(row) && row.length>=9 && String(row[0]||"").toUpperCase()==="D") {
+    const manufacturer=String(row[3]||"");
+    const factoryKey=Object.entries(FACTORIES).find(([,factory])=>factory.manufacturer===manufacturer||factory.label===manufacturer)?.[0]||"clines";
+    return {item:row[1]||"",manufacturer:FACTORIES[factoryKey].manufacturer,model:row[4]||"",qty:row[5]||"1",spec:row[6]||"",price:row[7]||"0",category:row[9]||"",factoryKey};
+  }
+  return {item:row?.[0]||"",qty:row?.[1]||"1",spec:row?.[2]||"",category:row?.[2]||"",manufacturer:row?.[3]||MANUFACTURER,model:row?.[4]||"",price:"0"};
 }
 
 async function deleteSavedProject(project) {
