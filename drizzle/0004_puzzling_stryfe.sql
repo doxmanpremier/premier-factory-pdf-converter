@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `territory` text DEFAULT '' NOT NULL;

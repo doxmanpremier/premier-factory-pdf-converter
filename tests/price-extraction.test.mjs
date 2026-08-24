@@ -26,31 +26,78 @@ const source = [
   between("splitDescriptionAndNumbers", "normalizePrice"),
   between("normalizePrice", "updateProjectFromQuotes"),
   between("buildExportRow", "tableData"),
+  between("csvCell", "setStatus"),
 ].join("\n");
 
 const context = {
   FACTORIES: {
     halton: { manufacturer: "Halton" },
     lti: { manufacturer: "LTI" },
+    amerikooler: { manufacturer: "Ameri" },
   },
   MANUFACTURER: "CWF",
 };
 vm.createContext(context);
 vm.runInContext(source, context);
 
-const pdfItem = (x, y, str) => ({ transform: [1, 0, 0, 1, x, y], str });
+const pdfItem = (x, y, str, height=12, fontName="F-bold") => ({ transform: [1, 0, 0, height, x, y], str, height, fontName });
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test("factory metadata uses the new quote and revision formats", () => {
   assert.deepEqual(plain(context.extractQuoteMetadata(["Estimate 1276"], "clines")), { quoteNumber: "1276", revision: "", model: "Q#1276" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote No. QUOTE31066", "Revision No.: 6/23/2026"], "halton")), { quoteNumber: "31066", revision: "6.23.26", model: "Q#31066 Rev6.23.26" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote 2435", "Revision: 2"], "lti")), { quoteNumber: "2435", revision: "2", model: "Q#2435 Rev2" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-23524", "Revision: 1"], "amerikooler")), { quoteNumber: "26-23524", revision: "1", model: "Q#26-23524 Rev1" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26 - 23524 Date: 08/14/2026", "Revision: 1"], "amerikooler")), { quoteNumber: "26-23524", revision: "1", model: "Q#26-23524 Rev1" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-24587", "Quoted by: Clara Philip Revision:", "Phone: 305.884.8384"], "amerikooler")), { quoteNumber: "26-24587", revision: "", model: "Q#26-24587" });
 });
 
 test("per-row model numbers match each factory convention", () => {
   assert.equal(context.modelForItem("clines", { quoteNumber: "1276" }, "15"), "Q#1276 Item15");
   assert.equal(context.modelForItem("halton", { quoteNumber: "31066", revision: "6.23.26" }, "2.30L/M/R"), "Q#31066 Rev6.23.26 Item#2.30L/M/R");
   assert.equal(context.modelForItem("lti", { quoteNumber: "2435", revision: "2" }, "30"), "Q#2435 Rev2 Item 30");
+  assert.equal(context.modelForItem("amerikooler", { quoteNumber: "26-23524", revision: "1" }, "1"), "Q#26-23524 Rev1");
+});
+
+test("AmeriKooler always exports box and equipment as two wrapped rows", () => {
+  const rows=context.extractAmeriKoolerRows([
+    "Walk-in: 8 X 18 FRZ",
+    "Actual Overall Dimension: 7'-10\" x 17'-7 1/2\" x 7'-7\" (Rectangular)",
+    "Description: Indoor Freezer, with Floor",
+    "Freight Freight included to NC 28711",
+    "Approximate Total Shipping Weight: 2484 lb",
+    "Box Price: 8 X 18 FRZ $18,606.00",
+    "Equipment: (1) 4 HP Bohn DOE Compliant Outdoor Condensing Unit, $11,327.00",
+    "Model BCH0045LBBCZA0300, 208-230/1/60",
+    "Refrigeration excludes lines and Refrigerant.",
+    "Total: $29,933.00",
+  ],{quoteNumber:"26-23524",revision:"1"});
+  assert.deepEqual(plain(rows.map(({item,qty,category,manufacturer,model,price,spec})=>({item,qty,category,manufacturer,model,price,spec}))),[
+    {item:"1",qty:"1",category:"Box, Panels Only",manufacturer:"Ameri",model:"Q#26-23524 Rev1",price:"18606.00",spec:"Walk-in: 8 X 18 FRZ\nActual Overall Dimension: 7'-10\" x 17'-7 1/2\" x 7'-7\" (Rectangular)\nDescription: Indoor Freezer, with Floor\nFreight Freight included to NC 28711"},
+    {item:"2",qty:"1",category:"Equipment",manufacturer:"Ameri",model:"Q#26-23524 Rev1",price:"11327.00",spec:"(1) 4 HP Bohn DOE Compliant Outdoor Condensing Unit,\nModel BCH0045LBBCZA0300, 208-230/1/60\nRefrigeration excludes lines and Refrigerant."},
+  ]);
+});
+
+test("AmeriKooler accepts any bold box heading immediately above the dimensions", () => {
+  for (const heading of [
+    "Two Compartment Walk-in: 10 X 16 OUTDR. COMBO",
+    "7 Compartment Walk-in: 40 X 60 CUSTOM COMBO",
+    "Custom Outdoor Refrigerated Box: 12 X 24",
+  ]) {
+    const rows=context.extractAmeriKoolerRows([
+      heading,
+      "Actual Overall Dimension: 10'-2\" x 16'-2\" x 7'-7\" (Rectangular)",
+      "Description: Compartment 1 of 2 - Outdoor Freezer, with Floor",
+      "Approximate Total Shipping Weight: 3682 lb",
+      "Box Price: 10 X 16 OUTDR. COMBO $23,062.00",
+      "Equipment: (1) 2 HP Bohn Condensing Unit $11,515.00",
+      "Total: $34,577.00",
+    ],{quoteNumber:"26-24587",revision:""});
+    assert.equal(rows.length,2);
+    assert.equal(rows[0].spec.split("\n")[0],heading);
+    assert.equal(rows[0].price,"23062.00");
+    assert.equal(rows[1].price,"11515.00");
+  }
 });
 
 test("Cline's and LTI export the required manufacturer abbreviations", () => {
@@ -85,6 +132,69 @@ test("Halton keeps categories separate and carries multiline specifications acro
   ]);
 });
 
+test("Halton stops the final specification before totals and quote footer text", () => {
+  const page = [
+    pdfItem(97, 700, "Item No."), pdfItem(144, 700, "Description"), pdfItem(398, 700, "Quantity"), pdfItem(451, 700, "Unit Price"), pdfItem(510, 700, "Total Price"),
+    pdfItem(97, 680, "FSS"), pdfItem(144, 680, "Ansul R-102 Fire System"), pdfItem(398, 680, "1"), pdfItem(451, 680, "20,275.00"), pdfItem(510, 680, "20,275.00"),
+    pdfItem(144, 660, "System includes tanks and detection."),
+    pdfItem(144, 120, "Total"), pdfItem(510, 120, "20,275.00"),
+    pdfItem(144, 95, "Terms and Conditions: pricing is valid for 30 days."),
+    pdfItem(144, 75, "Thank you for your business."),
+  ];
+  const rows = context.extractHaltonRows([page], { quoteNumber: "31066", revision: "" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].spec, "System includes tanks and detection.");
+});
+
+test("project saving accepts Halton or AmeriKooler as the only factory", () => {
+  const workerSource = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+  const options = workerSource.match(/const FACTORY_OPTIONS = new Set\(\[([^\]]+)\]\)/)?.[1] || "";
+  assert.match(options, /"Halton"/);
+  assert.match(options, /"AmeriKooler"/);
+});
+
+test("past projects support dealer sorting, Excel export, and factory running totals", () => {
+  const source = readFileSync(new URL("../public/converter.html", import.meta.url), "utf8");
+  assert.match(source, /id="sortProjectsByDealer"/);
+  assert.match(source, /id="exportPastProjects"/);
+  assert.match(source, /function exportAllPastProjects\(\)/);
+  assert.match(source, /let filteredPastProjects = \[\];/);
+  assert.match(source, /filteredPastProjects=\[\.\.\.filtered\]/);
+  assert.match(source, /for \(const project of projectsToExport\)/);
+  assert.match(source, /Export Filtered to Excel/);
+  assert.match(source, /function renderFactoryTotals\(projects\)/);
+  assert.match(source, /\["Bid Date","Upload Date","Project Name","MAFSI Territory","Factory","Dealer","Dollar Amount"\]/);
+  assert.match(source, /id="projectTerritoryFilter/);
+  assert.match(source, /id="mafsiTerritory/);
+  assert.match(source, /renderFactoryTotals\(filtered\)/);
+  assert.match(source, /Both: MAFSI 11 & 12/);
+  assert.match(source, /function territoryMatches\(projectTerritory,filterTerritory\)/);
+  assert.match(source, /<option value="factory">Factory<\/option>/);
+  assert.match(source, /id="projectFactoryFilter/);
+  assert.match(source, /getElementById\("sortProjectsByDealer"\)\.remove\(\)/);
+  assert.match(source, /function projectDisplayTotal\(project\)/);
+  assert.match(source, /else if \(\(rowAmounts\.get\(factory\)\|\|0\)>0\)/);
+});
+
+test("saving an opened project updates it instead of creating a duplicate", () => {
+  const pageSource = readFileSync(new URL("../public/converter.html", import.meta.url), "utf8");
+  const workerSource = readFileSync(new URL("../worker/index.ts", import.meta.url), "utf8");
+  assert.match(pageSource, /let activeProjectId = ""/);
+  assert.match(pageSource, /id:activeProjectId/);
+  assert.match(pageSource, /activeProjectId=project\.id/);
+  assert.match(workerSource, /UPDATE projects SET name = \?/);
+  assert.match(workerSource, /WHERE id = \? AND owner_key = \?/);
+});
+
+test("Past Projects is a separate view and save returns to it", () => {
+  const source = readFileSync(new URL("../public/converter.html", import.meta.url), "utf8");
+  assert.match(source, /function showPastProjectsView\(\)/);
+  assert.match(source, /dropZone\.hidden=true/);
+  assert.match(source, /results\.hidden=true/);
+  assert.match(source, /await loadPastProjects\(true\);\s*showPastProjectsView\(\)/);
+  assert.match(source, /function showProjectView\(\)/);
+});
+
 test("Cline's keeps full descriptions, simplifies categories, and exports one freight row", () => {
   const rows = context.extractRows([
     "ACTIVITY DESCRIPTION QTY RATE AMOUNT",
@@ -116,6 +226,25 @@ test("Cline's coordinate parser keeps every unit price and joins wrapped descrip
   ]);
 });
 
+test("Cline's categories include wrapped descriptive lines and stop before dimensions", () => {
+  const pages=[[
+    pdfItem(107,700,"ACTIVITY"),pdfItem(222,700,"DESCRIPTION"),pdfItem(422,700,"QTY"),pdfItem(475,700,"RATE"),pdfItem(523,700,"AMOUNT"),
+    pdfItem(107,680,"Equipment"),pdfItem(222,680,"Item16 Work Table w/ Drawer &"),pdfItem(435,680,"2"),pdfItem(459,680,"2,640.00"),pdfItem(523,680,"5,280.00"),
+    pdfItem(222,660,"Shelf 6'"),
+    pdfItem(107,640,"Equipment"),pdfItem(222,640,"Item30 1-Comp Sink Prep Table"),pdfItem(435,640,"1"),pdfItem(459,640,"4,015.00"),pdfItem(523,640,"4,015.00"),
+    pdfItem(222,620,"w/ Drawer & Pot Rack 8'"),
+    pdfItem(107,600,"Equipment"),pdfItem(222,600,"Item67 Wall Mounted Over Shelf"),pdfItem(435,600,"1"),pdfItem(459,600,"429.00"),pdfItem(523,600,"429.00"),
+    pdfItem(222,580,"w/ Utensil Rail 6'"),
+    pdfItem(475,560,"SUBTOTAL"),pdfItem(523,560,"9,724.00"),
+  ]];
+  const rows=context.extractClinesRows(pages,{quoteNumber:"1139",revision:""});
+  assert.deepEqual(plain(rows.map(({item,category})=>({item,category}))),[
+    {item:"16",category:"Work Table W/ Drawer & Shelf"},
+    {item:"30",category:"1-Comp Sink Prep Table W/ Drawer & Pot Rack"},
+    {item:"67",category:"Wall Mounted Over Shelf W/ Utensil Rail"},
+  ]);
+});
+
 test("Cline's line-item count is dynamic from one through at least one hundred rows", () => {
   for (const count of [1, 10, 70, 100]) {
     const quoteLines=["ACTIVITY DESCRIPTION QTY RATE AMOUNT"];
@@ -142,8 +271,43 @@ test("LTI keeps the title as category and all following lines as the full specif
   ]);
 });
 
+test("LTI joins a wrapped bold category and never treats bold prices as category text", () => {
+  const pages=[[
+    pdfItem(62,700,"Item"),pdfItem(115,700,"Qty"),pdfItem(145,700,"Description"),pdfItem(445,700,"Unit Price"),pdfItem(530,700,"Total"),
+    pdfItem(62,500,"431"),pdfItem(115,500,"1"),
+    pdfItem(145,506,"Specline (SPC-TA-LP-20-05-84) Tempest-Air Cold"),
+    pdfItem(145,494,"Food Counter"),
+    // Some LTI PDFs position the bold unit price inside the description cutoff.
+    pdfItem(410,500,"$20,126.00 $20,126.00"),
+    pdfItem(145,478,"Approx. 84-3/8 x 32 x 36 High",10,"F-regular"),
+    pdfItem(145,464,"14 Ga. Stainless Steel Top",10,"F-regular"),
+  ]];
+  const rows=context.extractLtiRows([
+    "Specline (SPC-TA-LP-20-05-84) Tempest-Air Cold",
+    "431 1 $20,126.00 $20,126.00",
+    "Food Counter",
+    "Approx. 84-3/8 x 32 x 36 High",
+    "14 Ga. Stainless Steel Top",
+    "Total $20,126.00",
+  ],{quoteNumber:"58636",revision:"1"},pages);
+  assert.deepEqual(plain(rows.map(({item,category,spec,price})=>({item,category,spec,price}))),[
+    {
+      item:"431",
+      category:"Specline (SPC-TA-LP-20-05-84) Tempest-Air Cold Food Counter",
+      spec:"Approx. 84-3/8 x 32 x 36 High 14 Ga. Stainless Steel Top",
+      price:"20126.00",
+    },
+  ]);
+});
+
 test("main export row is headerless A-I with constants and unit price", () => {
   assert.deepEqual(plain(context.buildExportRow({ item: "Item20.1", manufacturer: "Halton", model: "Q#31066 Item#20.1", qty: "2", spec: "Full\nspec", price: "123.45" })), [
     "D", "20.1", 0, "Halton", "Q#31066 Item#20.1", "2", "Full\nspec", 123.45, 0,
   ]);
+});
+
+test("CSV export keeps wrapped specifications on one physical import row", () => {
+  const cell=context.csvCell('Line one\nLine two, with 2" insulation');
+  assert.equal(cell,'"Line one Line two, with 2"" insulation"');
+  assert.equal(cell.includes("\n"),false);
 });

@@ -13,6 +13,7 @@ export const projects = sqliteTable(
     premierSalesRep: text("premier_sales_rep").notNull().default(""),
     totalAmount: real("total_amount").notNull().default(0),
     specification: text("specification").notNull().default("Prime Spec"),
+    territory: text("territory").notNull().default(""),
     uploadDate: text("upload_date").notNull().default(""),
     bidDate: text("bid_date").notNull().default(""),
     sourceFile: text("source_file").notNull().default(""),

@@ -5,6 +5,9 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  AUTH_USERNAME: string;
+  AUTH_PASSWORD_HASH: string;
+  SESSION_SIGNING_KEY: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -28,6 +31,7 @@ type ProjectRow = {
   premier_sales_rep: string;
   total_amount: number;
   specification: string;
+  territory: string;
   upload_date: string;
   bid_date: string;
   source_file: string;
@@ -37,10 +41,8 @@ type ProjectRow = {
 };
 
 const SPEC_OPTIONS = new Set(["Prime Spec", "Approved Alternate", "Unapproved Alternate"]);
-const FACTORY_OPTIONS = new Set(["Cline's Welding and Fabrication", "Halton", "AmeriKooler", "Low Temp Industries"]);
-const AUTH_USERNAME = "PremierFSG";
-const AUTH_PASSWORD_HASH = "f3d0fae0b847edd2b2b80950c976a2a898813c6c975284e7be5419e1be35e1ff";
-const SESSION_SIGNING_KEY = "77db353be1d42e08da9c63644a42894ce8d8d00947c64399151c5e007b92ac86";
+const TERRITORY_OPTIONS = new Set(["MAFSI 11", "MAFSI 12", "MAFSI 11 & MAFSI 12"]);
+const FACTORY_OPTIONS = new Set(["Cline's Welding and Fabrication", "Halton", "Low Temp Industries", "AmeriKooler"]);
 const SESSION_COOKIE = "clines_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
@@ -78,14 +80,14 @@ async function sha256(value: string) {
   return bytesToHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
 
-async function signSession(payload: string) {
-  const key = await crypto.subtle.importKey("raw", hexToBytes(SESSION_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+async function signSession(payload: string, signingKey: string) {
+  const key = await crypto.subtle.importKey("raw", hexToBytes(signingKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return bytesToHex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
 }
 
-async function createSession() {
-  const payload = base64UrlEncode(JSON.stringify({ username: AUTH_USERNAME, expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000 }));
-  return `${payload}.${await signSession(payload)}`;
+async function createSession(env: Env) {
+  const payload = base64UrlEncode(JSON.stringify({ username: env.AUTH_USERNAME, expiresAt: Date.now() + SESSION_TTL_SECONDS * 1000 }));
+  return `${payload}.${await signSession(payload, env.SESSION_SIGNING_KEY)}`;
 }
 
 function readCookie(request: Request, name: string) {
@@ -97,12 +99,13 @@ function readCookie(request: Request, name: string) {
   return "";
 }
 
-async function isAuthenticated(request: Request) {
+async function isAuthenticated(request: Request, env: Env) {
   try {
+    if (!env.AUTH_USERNAME || !/^[0-9a-f]{64}$/i.test(env.SESSION_SIGNING_KEY)) return false;
     const [payload, signature] = readCookie(request, SESSION_COOKIE).split(".");
-    if (!payload || !signature || !constantTimeEqual(signature, await signSession(payload))) return false;
+    if (!payload || !signature || !constantTimeEqual(signature, await signSession(payload, env.SESSION_SIGNING_KEY))) return false;
     const session = JSON.parse(base64UrlDecode(payload)) as { username?: string; expiresAt?: number };
-    return session.username === AUTH_USERNAME && typeof session.expiresAt === "number" && session.expiresAt > Date.now();
+    return session.username === env.AUTH_USERNAME && typeof session.expiresAt === "number" && session.expiresAt > Date.now();
   } catch {
     return false;
   }
@@ -114,15 +117,18 @@ function loginPage(invalid = false) {
   </style></head><body><main class="login"><div class="brand"><img src="https://premierfsg.com/wp-content/uploads/2024/02/premiere_logomark-chrome.png" alt="Premier Foodservice Group logo"><span class="wordmark"><strong>PREMIER</strong><small>FOODSERVICE GROUP</small></span></div><p class="eyebrow">SECURE PROJECT TOOLS</p><h1>Factory Quote Converter</h1><p>Sign in to access the converter and saved projects.</p><form method="post" action="/login"><label>Username<input name="username" type="text" autocomplete="username" required autofocus></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign In</button>${invalid ? '<p class="error" role="alert">The username or password is incorrect.</p>' : ""}</form></main></body></html>`;
 }
 
-async function handleLogin(request: Request) {
+async function handleLogin(request: Request, env: Env) {
   if (request.method === "GET") return new Response(loginPage(false), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, POST" } });
   const form = await request.formData();
   const username = cleanText(form.get("username"), 100);
   const password = typeof form.get("password") === "string" ? String(form.get("password")) : "";
-  const valid = username === AUTH_USERNAME && constantTimeEqual(await sha256(password), AUTH_PASSWORD_HASH);
+  if (!env.AUTH_USERNAME || !/^[0-9a-f]{64}$/i.test(env.AUTH_PASSWORD_HASH) || !/^[0-9a-f]{64}$/i.test(env.SESSION_SIGNING_KEY)) {
+    return new Response("Authentication is not configured.", { status: 503, headers: { "cache-control": "no-store" } });
+  }
+  const valid = username === env.AUTH_USERNAME && constantTimeEqual(await sha256(password), env.AUTH_PASSWORD_HASH);
   if (!valid) return new Response(loginPage(true), { status: 401, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-  return new Response(null, { status: 303, headers: { Location: "/", "Set-Cookie": `${SESSION_COOKIE}=${await createSession()}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`, "cache-control": "no-store" } });
+  return new Response(null, { status: 303, headers: { Location: "/", "Set-Cookie": `${SESSION_COOKIE}=${await createSession(env)}; Path=/; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`, "cache-control": "no-store" } });
 }
 
 function handleLogout() {
@@ -139,8 +145,7 @@ function cleanText(value: unknown, max = 200) {
 }
 
 function normalizeFactory(value: unknown) {
-  const factory = cleanText(value, 80);
-  return factory === "Amerikooler" ? "AmeriKooler" : factory;
+  return cleanText(value, 80);
 }
 
 function parseArray(value: string) {
@@ -189,6 +194,7 @@ function serializeProject(row: ProjectRow) {
     premierSalesReps: parseNames(row.premier_sales_rep),
     totalAmount: Number(row.total_amount || 0),
     specification: row.specification,
+    territory: row.territory,
     uploadDate: row.upload_date,
     bidDate: row.bid_date,
     sourceFile: row.source_file,
@@ -205,21 +211,23 @@ async function handleProjects(request: Request, env: Env) {
   try {
     if (request.method === "GET") {
       const result = await env.DB.prepare(
-        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE owner_key = ? ORDER BY created_at DESC, id DESC LIMIT 250"
+        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, territory, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE owner_key = ? ORDER BY created_at DESC, id DESC LIMIT 250"
       ).bind(ownerKey).all<ProjectRow>();
       return Response.json({ projects: result.results.map(serializeProject) });
     }
 
     if (request.method === "POST") {
       const body = (await request.json()) as Record<string, unknown>;
+      const requestedId = cleanText(body.id, 100);
       const name = cleanText(body.name, 160);
       const requestedFactories = Array.isArray(body.factories) ? body.factories : [body.factory];
       const factories = [...new Set(requestedFactories.map(normalizeFactory).filter((factory) => FACTORY_OPTIONS.has(factory)))];
       const factory = JSON.stringify(factories);
       const specification = cleanText(body.specification, 50);
+      const territory = cleanText(body.territory, 20);
       const items: string[][] = [];
       for (const row of (Array.isArray(body.items) ? body.items : []).slice(0, 500)) {
-        if (Array.isArray(row)) items.push(row.slice(0, 5).map((cell) => cleanText(cell, 2000)));
+        if (Array.isArray(row)) items.push(row.slice(0, 10).map((cell) => cleanText(cell, 10000)));
       }
       const dealers = (Array.isArray(body.dealers) ? body.dealers : [])
         .map((dealer) => cleanText(dealer, 160))
@@ -253,32 +261,30 @@ async function handleProjects(request: Request, env: Env) {
       if (!items.length) return Response.json({ error: "Add or upload quote items before saving." }, { status: 400 });
       if (!factories.length) return Response.json({ error: "Choose at least one factory." }, { status: 400 });
       if (!SPEC_OPTIONS.has(specification)) return Response.json({ error: "Choose a valid specification status." }, { status: 400 });
+      if (!TERRITORY_OPTIONS.has(territory)) return Response.json({ error: "Choose MAFSI 11, MAFSI 12, or both territories." }, { status: 400 });
       if (!Number.isFinite(totalAmount) || totalAmount < 0 || totalAmount > 1_000_000_000) return Response.json({ error: "Enter a valid total dollar amount." }, { status: 400 });
 
-      const id = crypto.randomUUID();
-      await env.DB.prepare(
-        "INSERT INTO projects (id, owner_key, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, upload_date, bid_date, source_file, items, quotes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(
-        id,
-        ownerKey,
-        name,
-        factory,
-        JSON.stringify(dealers),
-        JSON.stringify(premierEstimators),
-        JSON.stringify(premierSalesReps),
-        totalAmount,
-        specification,
-        cleanText(body.uploadDate, 20),
-        cleanText(body.bidDate, 20),
-        cleanText(body.sourceFile, 2000),
-        JSON.stringify(items),
-        JSON.stringify(quotes)
-      ).run();
+      const id = requestedId || crypto.randomUUID();
+      const values = [
+        name, factory, JSON.stringify(dealers), JSON.stringify(premierEstimators), JSON.stringify(premierSalesReps),
+        totalAmount, specification, territory, cleanText(body.uploadDate, 20), cleanText(body.bidDate, 20),
+        cleanText(body.sourceFile, 2000), JSON.stringify(items), JSON.stringify(quotes)
+      ] as const;
+      if (requestedId) {
+        const updated = await env.DB.prepare(
+          "UPDATE projects SET name = ?, factory = ?, dealers = ?, premier_estimator = ?, premier_sales_rep = ?, total_amount = ?, specification = ?, territory = ?, upload_date = ?, bid_date = ?, source_file = ?, items = ?, quotes = ? WHERE id = ? AND owner_key = ?"
+        ).bind(...values, id, ownerKey).run();
+        if (!updated.meta.changes) return Response.json({ error: "The saved project could not be found." }, { status: 404 });
+      } else {
+        await env.DB.prepare(
+          "INSERT INTO projects (id, owner_key, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, territory, upload_date, bid_date, source_file, items, quotes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(id, ownerKey, ...values).run();
+      }
 
       const saved = await env.DB.prepare(
-        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE id = ? AND owner_key = ?"
+        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, territory, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE id = ? AND owner_key = ?"
       ).bind(id, ownerKey).first<ProjectRow>();
-      return Response.json({ project: saved ? serializeProject(saved) : null }, { status: 201 });
+      return Response.json({ project: saved ? serializeProject(saved) : null }, { status: requestedId ? 200 : 201 });
     }
 
     if (request.method === "DELETE") {
@@ -305,10 +311,10 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/login") return handleLogin(request);
+    if (url.pathname === "/login") return handleLogin(request, env);
     if (url.pathname === "/logout" && request.method === "POST") return handleLogout();
     const isAgentPreview = url.hostname === "terminal.local";
-    if (!isAgentPreview && !(await isAuthenticated(request))) {
+    if (!isAgentPreview && !(await isAuthenticated(request, env))) {
       if (url.pathname.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
       return Response.redirect(new URL("/login", request.url), 303);
     }

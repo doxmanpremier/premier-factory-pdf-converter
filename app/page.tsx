@@ -3,7 +3,7 @@ export default function Home() {
     <main className="app-shell">
       <iframe
         className="converter-frame"
-        src="/converter.html?v=ai-category-export-20260814"
+        src="/converter.html?v=lti-category-price-cleanup-20260816"
         title="Factory Quote Converter"
         allow="clipboard-write"
       />
