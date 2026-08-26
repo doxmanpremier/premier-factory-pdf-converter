@@ -365,15 +365,37 @@ async function processPdf(file) {
     return {id:browserUuid(),fileName:file.name,factoryKey,factory:factory.label,model:metadata.model,quoteNumber:metadata.quoteNumber,revision:metadata.revision,projectName:projectDetails.projectName,totalAmount:projectDetails.totalAmount,rows};
 }
 
+function joinPdfTextItems(items) {
+  const ordered=[...items].sort((a,b)=>(a.x??a.transform?.[4]??0)-(b.x??b.transform?.[4]??0));
+  let result="";
+  let previous=null;
+  for (const item of ordered) {
+    const text=String(item.text??item.str??"");
+    if (!text) continue;
+    if (previous) {
+      const currentX=Number(item.x??item.transform?.[4]);
+      const previousX=Number(previous.x??previous.transform?.[4]);
+      const previousWidth=Number(previous.width);
+      const previousHeight=Math.abs(Number(previous.height??previous.transform?.[3])||12);
+      const measurable=Number.isFinite(currentX)&&Number.isFinite(previousX)&&Number.isFinite(previousWidth);
+      const gap=measurable?currentX-(previousX+Math.max(0,previousWidth)):Infinity;
+      if (!/\s$/.test(result)&&!/^\s/.test(text)&&gap>Math.max(1.5,previousHeight*.08)) result+=" ";
+    }
+    result+=text;
+    previous=item;
+  }
+  return result.replace(/\s+/g," ").trim();
+}
+
 function itemsToLines(items) {
   const groups = [];
   for (const item of items) {
     const y = item.transform[5];
     let group = groups.find(g => Math.abs(g.y-y) < 2.2);
     if (!group) { group={y,items:[]}; groups.push(group); }
-    group.items.push({x:item.transform[4],text:item.str});
+    group.items.push(item);
   }
-  return groups.sort((a,b)=>b.y-a.y).map(g => g.items.sort((a,b)=>a.x-b.x).map(i=>i.text.trim()).filter(Boolean).join(" ").replace(/\s+/g," ").trim());
+  return groups.sort((a,b)=>b.y-a.y).map(group=>joinPdfTextItems(group.items)).filter(Boolean);
 }
 
 function detectFactory(lines) {
@@ -386,31 +408,42 @@ function detectFactory(lines) {
 }
 
 function extractQuoteMetadata(lines,factoryKey,fileName="") {
+  const mostCompleteQuoteNumber=(...values)=>values
+    .flat()
+    .map(normalizeQuoteNumber)
+    .filter(Boolean)
+    .sort((a,b)=>b.replace(/\D/g,"").length-a.replace(/\D/g,"").length||b.length-a.length)[0]||"";
   const text=lines.join("\n");
+  const baseFileName=String(fileName||"").replace(/\.[^.]+$/,"");
   if (factoryKey==="clines") {
-    const match=text.match(/\b(?:Estimate|Quote)\s*(?:#|No\.?|Number)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]*)/i) || fileName.match(/(?:Qte|Quote)[-_ ]*([A-Z0-9][A-Z0-9._/-]*)/i);
-    const quoteNumber=normalizeQuoteNumber(match?.[1]);
+    const textMatch=text.match(/\b(?:Estimate|Quote)\s*(?:#|No\.?|Number)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]*(?:\s+\d{1,4})?)/i);
+    const fileMatch=baseFileName.match(/(?:Estimate|Qte|Quote)[-_ ]*([A-Z0-9][A-Z0-9._/-]*)/i);
+    const quoteNumber=mostCompleteQuoteNumber(textMatch?.[1],fileMatch?.[1]);
     return {quoteNumber,revision:"",model:quoteNumber?`Q#${quoteNumber}`:"Cline's Quote"};
   }
   if (factoryKey==="halton") {
-    const match=text.match(/Quote\s+No\.?\s*(?:QUOTE\s*)?([A-Z0-9._/-]+)/i) || fileName.match(/Qte[-_ ]*([A-Z0-9._/-]+)/i);
-    const quoteNumber=normalizeQuoteNumber(match?.[1]);
+    const textMatch=text.match(/Quote\s+No\.?\s*(?:QUOTE\s*)?([A-Z0-9._/-]+(?:\s+\d{1,4})?)/i);
+    const fileMatch=baseFileName.match(/(?:Qte|Quote)[-_ ]*(?:QUOTE[-_ ]*)?([A-Z0-9._/-]+)/i);
+    const quoteNumber=mostCompleteQuoteNumber(textMatch?.[1],fileMatch?.[1]);
     const revisionDate=text.match(/Revision\s+No\.?\s*:\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i)?.[1]||"";
     const revision=formatRevisionDate(revisionDate);
     return {quoteNumber,revision,model:quoteNumber?`Q#${quoteNumber}${revision?` Rev${revision}`:""}`:"Halton Quote"};
   }
   if (factoryKey==="lti") {
-    const match=text.match(/\bQuote\s+(\d{3,})\b/i) || fileName.match(/\b(\d{3,})\b/);
-    const quoteNumber=normalizeQuoteNumber(match?.[1]);
-    const revisionMatch=text.match(/\b(?:Revision|Rev\.?)\s*(?:No\.?|#)?\s*:?\s*([A-Z0-9.-]+)/i) || fileName.match(/[-_ ]Rev(?:ision)?[-_ ]?([A-Z0-9.-]+)/i);
+    const textMatch=text.match(/\bQuote\s+(\d{3,}(?:\s+\d{1,4})?)\b/i);
+    const namedFileMatch=baseFileName.match(/(?:Qte|Quote)[-_ ]*(\d{3,})/i);
+    const fallbackFileMatch=baseFileName.match(/\b(\d{3,})\b/);
+    const quoteNumber=mostCompleteQuoteNumber(textMatch?.[1],namedFileMatch?.[1],fallbackFileMatch?.[1]);
+    const revisionMatch=text.match(/\b(?:Revision|Rev\.?)\s*(?:No\.?|#)?\s*:?\s*([A-Z0-9.-]+)/i) || baseFileName.match(/[-_ ]Rev(?:ision)?[-_ ]?([A-Z0-9.-]+)/i);
     const revision=String(revisionMatch?.[1]||"").replace(/[^A-Z0-9.-]/gi,"").trim();
     return {quoteNumber,revision,model:quoteNumber?`Q#${quoteNumber}${revision?` Rev${revision}`:""}`:"LTI Quote"};
   }
   if (factoryKey==="amerikooler") {
-    const match=text.match(/\bQuote\s*#\s*:\s*((?:[A-Z0-9._/]+\s*-\s*)*[A-Z0-9._/]+)/i) || fileName.match(/\b(\d{2}-\d{3,})\b/);
-    const quoteNumber=normalizeQuoteNumber(match?.[1]);
+    const textMatch=text.match(/\bQuote\s*#\s*:\s*((?:[A-Z0-9._/]+\s*-\s*)*[A-Z0-9._/]+(?:\s+\d{1,4})?)/i);
+    const fileMatch=baseFileName.match(/\b(\d{2}-\d{3,})\b/);
+    const quoteNumber=mostCompleteQuoteNumber(textMatch?.[1],fileMatch?.[1]);
     const revisionLine=lines.find(line=>/\bRevision\s*:/i.test(String(line)))||"";
-    const revisionMatch=String(revisionLine).match(/\bRevision\s*:[ \t]*([A-Z0-9.-]+)/i) || fileName.match(/[-_ ]Rev(?:ision)?[-_ ]?([A-Z0-9.-]+)/i);
+    const revisionMatch=String(revisionLine).match(/\bRevision\s*:[ \t]*([A-Z0-9.-]+)/i) || baseFileName.match(/[-_ ]Rev(?:ision)?[-_ ]?([A-Z0-9.-]+)/i);
     const revision=String(revisionMatch?.[1]||"").replace(/[^A-Z0-9.-]/gi,"").trim();
     return {quoteNumber,revision,model:quoteNumber?`Q#${quoteNumber}${revision?` Rev${revision}`:""}`:"AmeriKooler Quote"};
   }
@@ -444,7 +477,7 @@ function groupedTextItems(items) {
     const y=item.transform[5];
     let group=groups.find(candidate=>Math.abs(candidate.y-y)<2.2);
     if (!group) { group={y,items:[]}; groups.push(group); }
-    group.items.push({x:item.transform[4],text,height:Math.abs(Number(item.height)||Number(item.transform?.[3])||0),fontName:String(item.fontName||"")});
+    group.items.push({x:item.transform[4],text,width:Number(item.width),height:Math.abs(Number(item.height)||Number(item.transform?.[3])||0),fontName:String(item.fontName||"")});
   }
   return groups.sort((a,b)=>b.y-a.y).map(group=>({...group,items:group.items.sort((a,b)=>a.x-b.x)}));
 }
@@ -470,8 +503,8 @@ function extractHaltonRows(pages,metadata) {
   for (const page of pages) {
     let inQuoteTable=false;
     for (const group of groupedTextItems(page)) {
-      const range=(minimum,maximum)=>group.items.filter(item=>item.x>=minimum&&item.x<maximum).map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
-      const wholeLine=group.items.map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      const range=(minimum,maximum)=>joinPdfTextItems(group.items.filter(item=>item.x>=minimum&&item.x<maximum));
+      const wholeLine=joinPdfTextItems(group.items);
       if (/Description[\s\S]*Quantity[\s\S]*Unit Price/i.test(wholeLine) || group.items.some(item=>/^Item No\.?$/i.test(item.text))) { inQuoteTable=true; continue; }
       if (!inQuoteTable) continue;
       if (isQuoteFooter(wholeLine)) { finishCurrent(); inQuoteTable=false; continue; }
@@ -641,7 +674,7 @@ function extractLtiProjectName(pages) {
   const boundaryX=fromItem?.x??400;
   const projectLines=groups
     .filter(group=>group.y<header.y-2&&group.y>header.y-82)
-    .map(group=>group.items.filter(item=>item.x<boundaryX-12).map(item=>item.text).join(" ").replace(/\s+/g," ").trim())
+    .map(group=>joinPdfTextItems(group.items.filter(item=>item.x<boundaryX-12)))
     .filter(line=>line&&!/^(?:Quote per specs|Please note)/i.test(line));
   return projectLines.join(" ").replace(/\s+,/g,",").replace(/,\s*$/,"").replace(/\s+/g," ").trim();
 }
@@ -720,8 +753,8 @@ function extractClinesRows(pages,metadata={}) {
   for (const page of pages) {
     let inTable=false;
     for (const group of groupedTextItems(page)) {
-      const range=(minimum,maximum)=>group.items.filter(item=>item.x>=minimum&&item.x<maximum).map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
-      const wholeLine=group.items.map(item=>item.text).join(" ").replace(/\s+/g," ").trim();
+      const range=(minimum,maximum)=>joinPdfTextItems(group.items.filter(item=>item.x>=minimum&&item.x<maximum));
+      const wholeLine=joinPdfTextItems(group.items);
       if (/ACTIVITY[\s\S]*DESCRIPTION[\s\S]*QTY[\s\S]*RATE[\s\S]*AMOUNT/i.test(wholeLine)) { inTable=true; continue; }
       if (!inTable) continue;
       if (/^(?:SUBTOTAL|TAX|TOTAL|Accepted By)\b/i.test(wholeLine)) { finishCurrent(); break; }

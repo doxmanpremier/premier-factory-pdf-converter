@@ -13,6 +13,7 @@ function between(start, end) {
 }
 
 const source = [
+  between("joinPdfTextItems", "detectFactory"),
   between("extractQuoteMetadata", "normalizeQuoteNumber"),
   between("normalizeQuoteNumber", "groupedTextItems"),
   between("groupedTextItems", "extractHaltonRows"),
@@ -50,6 +51,26 @@ test("factory metadata uses the new quote and revision formats", () => {
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-23524", "Revision: 1"], "amerikooler")), { quoteNumber: "26-23524", revision: "1", model: "Q#26-23524 Rev1" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26 - 23524 Date: 08/14/2026", "Revision: 1"], "amerikooler")), { quoteNumber: "26-23524", revision: "1", model: "Q#26-23524 Rev1" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-24587", "Quoted by: Clara Philip Revision:", "Phone: 305.884.8384"], "amerikooler")), { quoteNumber: "26-24587", revision: "", model: "Q#26-24587" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-259 60 Date: 08/26/2026"], "amerikooler", "26-25960-quote (1).pdf")), { quoteNumber: "26-25960", revision: "", model: "Q#26-25960" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-259 Date: 08/26/2026"], "amerikooler", "26-25960-quote (1).pdf")), { quoteNumber: "26-25960", revision: "", model: "Q#26-25960" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Estimate 127"], "clines", "Estimate-12765.pdf")), { quoteNumber: "12765", revision: "", model: "Q#12765" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote No. QUOTE310"], "halton", "Qte-31066.pdf")), { quoteNumber: "31066", revision: "", model: "Q#31066" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Quote 560"], "lti", "LTI Quote 56033.pdf")), { quoteNumber: "56033", revision: "", model: "Q#56033" });
+});
+
+test("hidden PDF fragments are reconstructed before field extraction", () => {
+  const items=[
+    {transform:[1,0,0,12,10,700],str:"Model ",width:34,height:12},
+    {transform:[1,0,0,12,44,700],str:"KR24-HX",width:48,height:12},
+    {transform:[1,0,0,12,92,700],str:"12",width:12,height:12},
+    {transform:[1,0,0,12,116,700],str:"Stainless steel dump sink",width:130,height:12},
+    {transform:[1,0,0,12,10,680],str:"Quote #: 26-259",width:88,height:12},
+    {transform:[1,0,0,12,98,680],str:"60",width:12,height:12},
+  ];
+  assert.deepEqual(plain(context.itemsToLines(items)),[
+    "Model KR24-HX12 Stainless steel dump sink",
+    "Quote #: 26-25960",
+  ]);
 });
 
 test("per-row model numbers match each factory convention", () => {
