@@ -42,7 +42,7 @@ type ProjectRow = {
 
 const SPEC_OPTIONS = new Set(["Prime Spec", "Approved Alternate", "Unapproved Alternate"]);
 const TERRITORY_OPTIONS = new Set(["MAFSI 11", "MAFSI 12", "MAFSI 11 & MAFSI 12"]);
-const FACTORY_OPTIONS = new Set(["Cline's Welding and Fabrication", "Halton", "Low Temp Industries", "AmeriKooler"]);
+const FACTORY_OPTIONS = new Set(["Cline's Welding and Fabrication", "Halton", "Low Temp Industries", "AmeriKooler", "Browne USA Foodservice"]);
 const SESSION_COOKIE = "clines_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
