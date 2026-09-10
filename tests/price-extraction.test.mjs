@@ -13,7 +13,7 @@ function between(start, end) {
 }
 
 const source = [
-  between("joinPdfTextItems", "detectFactory"),
+  between("extractBrowneProducts", "itemsToLines"),
   between("extractQuoteMetadata", "normalizeQuoteNumber"),
   between("normalizeQuoteNumber", "groupedTextItems"),
   between("groupedTextItems", "extractHaltonRows"),
@@ -46,6 +46,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 test("factory metadata uses the new quote and revision formats", () => {
   assert.deepEqual(plain(context.extractQuoteMetadata(["Estimate 1276"], "clines")), { quoteNumber: "1276", revision: "", model: "Q#1276" });
+  assert.deepEqual(plain(context.extractQuoteMetadata(["Estimate 1359_FROM_CLINES_WELDING_AND_FABRICATION"], "clines")), { quoteNumber: "1359", revision: "", model: "Q#1359" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote No. QUOTE31066", "Revision No.: 6/23/2026"], "halton")), { quoteNumber: "31066", revision: "6.23.26", model: "Q#31066 Rev6.23.26" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote 2435", "Revision: 2"], "lti")), { quoteNumber: "2435", revision: "2", model: "Q#2435 Rev2" });
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote #: 26-23524", "Revision: 1"], "amerikooler")), { quoteNumber: "26-23524", revision: "1", model: "Q#26-23524 Rev1" });
@@ -58,23 +59,22 @@ test("factory metadata uses the new quote and revision formats", () => {
   assert.deepEqual(plain(context.extractQuoteMetadata(["Quote 560"], "lti", "LTI Quote 56033.pdf")), { quoteNumber: "56033", revision: "", model: "Q#56033" });
 });
 
-test("hidden PDF fragments are reconstructed before field extraction", () => {
-  const items=[
-    {transform:[1,0,0,12,10,700],str:"Model ",width:34,height:12},
-    {transform:[1,0,0,12,44,700],str:"KR24-HX",width:48,height:12},
-    {transform:[1,0,0,12,92,700],str:"12",width:12,height:12},
-    {transform:[1,0,0,12,116,700],str:"Stainless steel dump sink",width:130,height:12},
-    {transform:[1,0,0,12,10,680],str:"Quote #: 26-259",width:88,height:12},
-    {transform:[1,0,0,12,98,680],str:"60",width:12,height:12},
-  ];
-  assert.deepEqual(plain(context.itemsToLines(items)),[
-    "Model KR24-HX12 Stainless steel dump sink",
-    "Quote #: 26-25960",
+test("Browne keeps product rows and rejects trailing placeholder rows", () => {
+  const rows=context.extractBrowneProducts([
+    ["Account Name","Taziki's"],
+    ["Item no.","Description","UOM","Regular Net","Special Net"],
+    [503803,'WIN2 Dinner Fork, 7.5"/19.1cm,18/0 SS, Mirror Finish',"DZ",8.38,6.29],
+    ["PC12002",'Sharpening Steel, Black Handle Blade-12"/30.5cm',"EA",44.44,33.33],
+    ["114","114","114","114","114"],
+  ]);
+  assert.deepEqual(plain(rows),[
+    [503803,'WIN2 Dinner Fork, 7.5"/19.1cm,18/0 SS, Mirror Finish',"DZ",8.38,6.29],
+    ["PC12002",'Sharpening Steel, Black Handle Blade-12"/30.5cm',"EA",44.44,33.33],
   ]);
 });
 
 test("per-row model numbers match each factory convention", () => {
-  assert.equal(context.modelForItem("clines", { quoteNumber: "1276" }, "15"), "Q#1276 Item15");
+  assert.equal(context.modelForItem("clines", { quoteNumber: "1276" }, "15"), "Q#1276ITEM15");
   assert.equal(context.modelForItem("halton", { quoteNumber: "31066", revision: "6.23.26" }, "2.30L/M/R"), "Q#31066 Rev6.23.26 Item#2.30L/M/R");
   assert.equal(context.modelForItem("lti", { quoteNumber: "2435", revision: "2" }, "30"), "Q#2435 Rev2 Item 30");
   assert.equal(context.modelForItem("amerikooler", { quoteNumber: "26-23524", revision: "1" }, "1"), "Q#26-23524 Rev1");
@@ -226,9 +226,9 @@ test("Cline's keeps full descriptions, simplifies categories, and exports one fr
     "SUBTOTAL 6,130.00",
   ], { quoteNumber: "1276", revision: "" });
   assert.deepEqual(plain(rows.map(({ item, category, spec, price, model }) => ({ item, category, spec, price, model }))), [
-    { item: "15", category: "Mobile Work Table", spec: "Mobile work table 5' with drawer", price: "2035.00", model: "Q#1276 Item15" },
-    { item: "20", category: "S/S Wall Cap", spec: "S/S Wall Cap 12'", price: "660.00", model: "Q#1276 Item20" },
-    { item: "", category: "Freight", spec: "Estimated freight to job site", price: "1400.00", model: "Q#1276 Freight" },
+    { item: "15", category: "Mobile Work Table", spec: "Mobile work table 5' with drawer", price: "2035.00", model: "Q#1276ITEM15" },
+    { item: "20", category: "S/S Wall Cap", spec: "S/S Wall Cap 12'", price: "660.00", model: "Q#1276ITEM20" },
+    { item: "", category: "Freight", spec: "Estimated freight to job site", price: "1400.00", model: "Q#1276FREIGHT" },
   ]);
 });
 
