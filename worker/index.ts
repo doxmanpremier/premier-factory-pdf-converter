@@ -210,10 +210,11 @@ async function handleProjects(request: Request, env: Env) {
 
   try {
     if (request.method === "GET") {
+      const offset = Math.max(0, Math.trunc(Number(new URL(request.url).searchParams.get("offset")) || 0));
       const result = await env.DB.prepare(
-        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, territory, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE owner_key = ? ORDER BY created_at DESC, id DESC LIMIT 250"
-      ).bind(ownerKey).all<ProjectRow>();
-      return Response.json({ projects: result.results.map(serializeProject) });
+        "SELECT id, name, factory, dealers, premier_estimator, premier_sales_rep, total_amount, specification, territory, upload_date, bid_date, source_file, items, quotes, created_at FROM projects WHERE owner_key = ? ORDER BY created_at DESC, id DESC LIMIT 251 OFFSET ?"
+      ).bind(ownerKey, offset).all<ProjectRow>();
+      return Response.json({ projects: result.results.slice(0, 250).map(serializeProject), nextOffset: result.results.length > 250 ? offset + 250 : null }, { headers: { "cache-control": "no-store" } });
     }
 
     if (request.method === "POST") {

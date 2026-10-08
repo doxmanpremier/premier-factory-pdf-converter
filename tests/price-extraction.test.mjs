@@ -13,6 +13,7 @@ function between(start, end) {
 }
 
 const source = [
+  between("itemsToLines", "detectFactory"),
   between("extractBrowneProducts", "itemsToLines"),
   between("extractQuoteMetadata", "normalizeQuoteNumber"),
   between("normalizeQuoteNumber", "groupedTextItems"),
@@ -27,6 +28,8 @@ const source = [
   between("splitDescriptionAndNumbers", "normalizePrice"),
   between("normalizePrice", "updateProjectFromQuotes"),
   between("buildExportRow", "tableData"),
+  between("categoryData", "downloadCategoryWorkbook"),
+  between("savedRowToEditable", "deleteSavedProject").replace(/async\s*$/, ""),
   between("csvCell", "setStatus"),
 ].join("\n");
 
@@ -43,6 +46,25 @@ vm.runInContext(source, context);
 
 const pdfItem = (x, y, str, height=12, fontName="F-bold") => ({ transform: [1, 0, 0, height, x, y], str, height, fontName });
 const plain = value => JSON.parse(JSON.stringify(value));
+
+test("LTI joins a wrapped item range around its quantity without consuming neighboring rows", () => {
+  const pages=[[pdfItem(62,320,"Item"),pdfItem(115,320,"Qty"),pdfItem(145,320,"Description"),pdfItem(445,320,"Unit Price"),
+    pdfItem(62,130,"105"),pdfItem(115,130,"1"),pdfItem(145,130,"Beverage Counter"),pdfItem(445,130,"$31,772.00"),pdfItem(520,130,"$31,772.00"),
+    pdfItem(62,94,"150A-"),pdfItem(62,82,"150N"),pdfItem(115,88,"11"),pdfItem(145,88,"Serving Counter"),pdfItem(445,88,"$74,353.36"),pdfItem(520,88,"$817,887.00"),
+    pdfItem(62,34,"152"),pdfItem(115,34,"11"),pdfItem(145,34,"Hot Food Well"),pdfItem(445,34,"$5,065.27"),pdfItem(520,34,"$55,718.00")]];
+  const before=JSON.stringify(pages);
+  const rows=context.extractLtiRows(pages.flatMap(context.itemsToLines),{quoteNumber:"59606",revision:"1"},pages);
+  assert.deepEqual(plain(rows.map(({item,qty,category,price})=>({item,qty,category,price}))),[
+    {item:"105",qty:"1",category:"Beverage Counter",price:"31772.00"},
+    {item:"150A-150N",qty:"11",category:"Serving Counter",price:"74353.36"},
+    {item:"152",qty:"11",category:"Hot Food Well",price:"5065.27"},
+  ]);
+  assert.equal(rows[0].spec,"");
+  assert.equal(rows[1].model,"Q#59606 Rev1 Item 150A-150N");
+  assert.equal(JSON.stringify(pages),before);
+  const separate=[[pdfItem(62,94,"150A"),pdfItem(62,82,"150N"),pdfItem(115,88,"11")]];
+  assert.equal(context.joinLtiWrappedItemNumbers(separate).changed,false);
+});
 
 test("factory metadata uses the new quote and revision formats", () => {
   assert.deepEqual(plain(context.extractQuoteMetadata(["Estimate 1276"], "clines")), { quoteNumber: "1276", revision: "", model: "Q#1276" });
@@ -80,7 +102,7 @@ test("per-row model numbers match each factory convention", () => {
   assert.equal(context.modelForItem("amerikooler", { quoteNumber: "26-23524", revision: "1" }, "1"), "Q#26-23524 Rev1");
 });
 
-test("AmeriKooler always exports box and equipment as two wrapped rows", () => {
+test("AmeriKooler exports two wrapped rows when no glass doors are quoted", () => {
   const rows=context.extractAmeriKoolerRows([
     "Walk-in: 8 X 18 FRZ",
     "Actual Overall Dimension: 7'-10\" x 17'-7 1/2\" x 7'-7\" (Rectangular)",
@@ -97,6 +119,29 @@ test("AmeriKooler always exports box and equipment as two wrapped rows", () => {
     {item:"1",qty:"1",category:"Box, Panels Only",manufacturer:"Ameri",model:"Q#26-23524 Rev1",price:"18606.00",spec:"Walk-in: 8 X 18 FRZ\nActual Overall Dimension: 7'-10\" x 17'-7 1/2\" x 7'-7\" (Rectangular)\nDescription: Indoor Freezer, with Floor\nFreight Freight included to NC 28711"},
     {item:"2",qty:"1",category:"Equipment",manufacturer:"Ameri",model:"Q#26-23524 Rev1",price:"11327.00",spec:"(1) 4 HP Bohn DOE Compliant Outdoor Condensing Unit,\nModel BCH0045LBBCZA0300, 208-230/1/60\nRefrigeration excludes lines and Refrigerant."},
   ]);
+});
+
+test("AmeriKooler exports complete glass door specs third regardless of PDF order", () => {
+  const glass = [
+    'Glass Door: (1) Energy Door Door model # ProE-3067-NT right hinged glass $1,858.00',
+    'display door with Black finish, Full Length handle, EcoLED 2',
+    'lights and no shelves.',
+  ];
+  const equipment = ['Equipment: (1) 0.75 HP Bohn Condensing Unit $6,238.00', 'Refrigeration excludes lines and Refrigerant.'];
+  for (const sections of [[...glass,...equipment], [...equipment,...glass.map(s=>s.replace('Glass Door:', 'Glass Doors:'))]]) {
+    const rows=context.extractAmeriKoolerRows([
+      'Walk-in: indoor cooler', 'Actual Overall Dimension: 8 x 10 x 7',
+      'Description: Indoor Cooler, with Floor', 'Box Price: indoor cooler $14,493.00',
+      ...sections, 'Total: $22,589.00', 'Option Add If Required:', 'Extended Warranty $718.00',
+    ], {quoteNumber:'26-25469',revision:'1'});
+    assert.deepEqual(plain(rows.map(r=>[r.item,r.category,r.price])), [['1','Box, Panels Only','14493.00'],['2','Equipment','6238.00'],['3','Glass Doors','1858.00']]);
+    assert.equal(rows[2].spec, '(1) Energy Door Door model # ProE-3067-NT right hinged glass\ndisplay door with Black finish, Full Length handle, EcoLED 2\nlights and no shelves.');
+    assert.equal(rows[1].spec, '(1) 0.75 HP Bohn Condensing Unit\nRefrigeration excludes lines and Refrigerant.');
+    assert.equal(rows[2].model, rows[0].model);
+    assert.equal(rows[2].qty, '1');
+    assert.equal(rows.reduce((sum,r)=>sum+Number(r.price),0),22589);
+    assert.equal(context.buildExportRow(rows[2])[7], 0);
+  }
 });
 
 test("AmeriKooler accepts any bold box heading immediately above the dimensions", () => {
@@ -321,9 +366,9 @@ test("LTI joins a wrapped bold category and never treats bold prices as category
   ]);
 });
 
-test("main export row is headerless A-I with constants and unit price", () => {
+test("main export row is headerless A-H with constants and no unit price", () => {
   assert.deepEqual(plain(context.buildExportRow({ item: "Item20.1", manufacturer: "Halton", model: "Q#31066 Item#20.1", qty: "2", spec: "Full\nspec", price: "123.45" })), [
-    "D", "20.1", 0, "Halton", "Q#31066 Item#20.1", "2", "Full\nspec", 123.45, 0,
+    "D", "20.1", 0, "Halton", "Q#31066 Item#20.1", "2", "Full\nspec", 0,
   ]);
 });
 
@@ -331,4 +376,23 @@ test("CSV export keeps wrapped specifications on one physical import row", () =>
   const cell=context.csvCell('Line one\nLine two, with 2" insulation');
   assert.equal(cell,'"Line one Line two, with 2"" insulation"');
   assert.equal(cell.includes("\n"),false);
+});
+
+ test("all four factory exports move prices to category B and preserve saved projects", () => {
+  const rows=["CWF","Halton","LTI","Ameri"].map((manufacturer,index)=>({item:String(index+1),manufacturer,model:"Quote 123",qty:"2",spec:"Full specification",price:index===3?"":"123.45",category:"Category "+index}));
+  context.editableRows=()=>rows;
+  context.converterMode="pdf";
+  assert.deepEqual(plain(context.categoryData()),rows.map(row=>[row.category,Number(row.price||0)]));
+  for (const row of rows) {
+    assert.deepEqual(plain(context.buildExportRow(row)),["D",row.item,0,row.manufacturer,row.model,"2",row.spec,0]);
+  }
+  const saved=plain(context.savedProjectData());
+  assert.deepEqual(saved.map(row=>[row[7],row[9]]),rows.map(row=>[String(Number(row.price||0)),row.category]));
+  context.FACTORIES.clines={manufacturer:"CWF"};
+  for (const [i,row] of saved.entries()) {
+    const reopened=context.savedRowToEditable(row);
+    assert.equal(reopened.price,String(Number(rows[i].price||0)));
+    assert.equal(reopened.category,rows[i].category);
+    assert.equal(reopened.manufacturer,rows[i].manufacturer);
+  }
 });
