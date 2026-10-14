@@ -23,3 +23,6 @@ export const projects = sqliteTable(
   },
   (table) => [index("projects_owner_created_idx").on(table.ownerKey, table.createdAt)]
 );
+
+export const pmEntries=sqliteTable('entries',{id:text('id').primaryKey(),owner:text('owner').notNull(),parent:text('parent'),kind:text('kind').notNull(),name:text('name').notNull(),content:text('content'),url:text('url'),key:text('key'),mime:text('mime'),size:real('size'),date:text('date'),stage:text('stage'),itemnumber:text('itemnumber'),manufacturer:text('manufacturer'),model:text('model'),quantity:real('quantity'),color:text('color'),created:text('created').notNull(),shop_drawings:text('shop_drawings'),po_number:text('po_number'),order_position:real('order_position')});
+export const pmMeta=sqliteTable('pm_meta',{id:text('id').primaryKey()});

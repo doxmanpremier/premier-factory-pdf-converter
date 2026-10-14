@@ -1,0 +1,155 @@
+
+import transfer from './pm-transfer.json';
+import {defaultStatuses,statusesFor} from '../lib/stages';
+type PMEnv={DB:D1Database;BUCKET:R2Bucket};
+export async function initializePM(env:PMEnv){
+ if(await env.DB.prepare("SELECT id FROM pm_meta WHERE id='initial-transfer-v1'").first())return;
+ const columns=['id','parent','kind','name','content','url','key','mime','size','date','stage','created','itemnumber','manufacturer','model','color','quantity'];
+ const statements=transfer.map((row:any)=>env.DB.prepare(`INSERT OR IGNORE INTO entries (owner,${columns.join(',')}) VALUES (${['?',...columns.map(()=>'?')].join(',')})`).bind('premier-workspace',...columns.map(k=>row[k]??null)));
+ statements.push(env.DB.prepare("INSERT OR IGNORE INTO pm_meta (id) VALUES ('initial-transfer-v1')"));
+ await env.DB.batch(statements);
+}
+const out=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'private, no-store'}});
+export async function pmGet(req:Request,env:PMEnv){
+ const owner='premier-workspace'; if(!owner)return out({error:'Please sign in to open your projects.'},401);
+ const rows=await env.DB!.prepare('SELECT * FROM entries WHERE owner = ? ORDER BY created DESC LIMIT 10000').bind(owner).all(); return out(rows.results);
+}
+export async function pmPost(req:Request,env:PMEnv){
+ const owner='premier-workspace';if(!owner)return out({error:'Please sign in.'},401);
+ if(req.headers.get('origin')!==new URL(req.url).origin)return out({error:'Invalid request origin.'},403);
+ try {
+ const form=await req.formData();const action=String(form.get('action')||'create');const id=String(form.get('id')||crypto.randomUUID());
+ const existing=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();
+ if(action==='deleteStatus'){
+  const name=String(form.get('name')||''),replacement=String(form.get('replacement')||'');
+  const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND kind IN ('status','status_removed')").bind(owner).all<any>();
+  const active=statusesFor(rows.results);if(!active.some(s=>s.name===name))return out({error:'Stage not found.'},404);
+  if(active.length<2||replacement===name||!active.some(s=>s.name===replacement))return out({error:'Choose another active stage for these items.'},400);
+  const stored=rows.results.find(s=>s.kind==='status'&&s.name===name);const source=stored?.content||name;
+  const statements=[env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(replacement,owner,name)];
+  if(defaultStatuses.some(s=>s.name===source)){
+   if(stored)statements.push(env.DB.prepare("UPDATE entries SET kind='status_removed',content=? WHERE id=? AND owner=?").bind(source,stored.id,owner));
+   else statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,created) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status_removed',name,source,new Date().toISOString()));
+  }else if(stored)statements.push(env.DB.prepare('DELETE FROM entries WHERE id=? AND owner=?').bind(stored.id,owner));
+  await env.DB.batch(statements);return out({ok:true});
+ }
+ if(action==='reorder'){
+  const parent=String(form.get('parent')||'');const ids=JSON.parse(String(form.get('ids')||'[]'));
+  if(!parent||!Array.isArray(ids)||!ids.length||ids.length>2000||ids.some(i=>typeof i!=='string')||new Set(ids).size!==ids.length)return out({error:'Invalid equipment order.'},400);
+  const rows=await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND parent=? AND kind='item'").bind(owner,parent).all<{id:string}>();
+  const valid=new Set(rows.results.map(r=>r.id));if(valid.size!==ids.length||ids.some(i=>!valid.has(i)))return out({error:'The item list changed. Refresh the project and try again.'},409);
+  await env.DB.batch(ids.map((itemId,index)=>env.DB.prepare('UPDATE entries SET order_position=? WHERE id=? AND owner=? AND parent=?').bind(index,itemId,owner,parent)));
+  return out({ok:true});
+ }
+ if(['bulkStatus','bulkNote','bulkPO','bulkDrawings','bulkDocument','metadata'].includes(action)){
+  const ids=action==='metadata'?[id]:JSON.parse(String(form.get('ids')||'[]'));
+  if(!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(i=>typeof i!=='string')||new Set(ids).size!==ids.length)return out({error:'Select between 1 and 500 different items.'},400);
+  const targets=await Promise.all(ids.map(i=>env.DB.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND kind='item'").bind(i,owner).first()));
+  if(targets.some(i=>!i)||targets.some(i=>i?.parent!==targets[0]?.parent))return out({error:'Select equipment items in the same project folder.'},400);
+  const statements:any[]=[];
+  if(action==='bulkDocument'){
+   const file=form.get('file');const url=String(form.get('url')||'').trim();
+   let key:string|null=null,mime:string|null=null,size:number|null=null,name=String(form.get('name')||'').trim().slice(0,300);
+   const kind=file instanceof File?'file':'link';
+   if(kind==='file'){
+    if(!(file instanceof File)||!file.size||file.size>25*1024*1024)return out({error:'Choose a file between 1 byte and 25 MB.'},400);
+    name=file.name.slice(0,300);mime=file.type||'application/octet-stream';size=file.size;key=owner+'/shared/'+crypto.randomUUID();
+    await env.BUCKET.put(key,file.stream(),{httpMetadata:{contentType:mime}});
+   }else{
+    try{if(new URL(url).protocol!=='https:'||!name)throw 0;}catch{return out({error:'Enter a document name and valid HTTPS link.'},400);}
+   }
+   for(const target of targets)statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,url,key,mime,size,created) VALUES (?,?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,target!.id,kind,name,kind==='link'?url:null,key,mime,size,new Date().toISOString()));
+   try{await env.DB.batch(statements);}catch(error){if(key)await env.BUCKET.delete(key);throw error;}
+   return out({ok:true,count:targets.length});
+  }else if(action==='bulkNote'){
+   const content=String(form.get('content')||'').trim(),date=String(form.get('date')||'');
+   if(!content||content.length>20000||!/^\d{4}-\d{2}-\d{2}$/.test(date))return out({error:'Enter a note and date.'},400);
+   for(const target of targets)statements.push(env.DB.prepare("INSERT INTO entries (id,owner,parent,kind,name,content,date,created) VALUES (?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,target!.id,'note','Shared item update',content,date,new Date().toISOString()));
+  }else{
+   const po=String(form.get('po_number')||'').trim(),drawings=String(form.get('shop_drawings')||'');
+   if(po.length>100||form.has('shop_drawings')&&!['yes','no',''].includes(drawings))return out({error:'Enter a valid PO number or drawing requirement.'},400);
+   const stage=String(form.get('stage')||'').trim();if(action==='bulkStatus'&&(!stage||stage.length>100))return out({error:'Choose a status.'},400);
+   if(action==='bulkPO'&&!form.has('po_number'))return out({error:'Enter a PO number.'},400);
+   if(action==='bulkDrawings'&&!['yes','no'].includes(drawings))return out({error:'Choose Yes or No for shop drawings.'},400);
+   for(const target of targets){
+    if(action==='bulkStatus')statements.push(env.DB.prepare('UPDATE entries SET stage=? WHERE id=? AND owner=?').bind(stage,target!.id,owner));
+    if(form.has('po_number'))statements.push(env.DB.prepare('UPDATE entries SET po_number=? WHERE id=? AND owner=?').bind(po||null,target!.id,owner));
+    if(form.has('shop_drawings'))statements.push(env.DB.prepare('UPDATE entries SET shop_drawings=? WHERE id=? AND owner=?').bind(drawings||null,target!.id,owner));
+   }
+  }
+  if(statements.length)await env.DB.batch(statements);return out({ok:true,count:targets.length});
+ }
+ if(action==='move'){
+  if(!existing||existing.kind==='stage'||(existing.kind==='folder'&&!existing.parent))return out({error:'This item cannot be moved here.'},400);
+  const parent=String(form.get('parent')||'');
+  let target=await env.DB!.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND kind IN ('folder','item')").bind(parent,owner).first<any>();if(!target)return out({error:'Folder not found.'},404);
+  let guard=0;while(target){if(target.id===id)return out({error:'A folder cannot be moved inside itself.'},400);if(!target.parent)break;target=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(target.parent,owner).first<any>();if(++guard>100)return out({error:'Folder tree too deep.'},400);}
+  await env.DB!.prepare('UPDATE entries SET parent=? WHERE id=? AND owner=?').bind(parent,id,owner).run();return out({ok:true});
+ }
+ if(action==='status'){
+  if(!existing||existing.kind!=='item')return out({error:'Item not found.'},404);
+  const status=String(form.get('stage')||'Pending quote').slice(0,100);
+  await env.DB!.prepare('UPDATE entries SET stage=? WHERE id=? AND owner=?').bind(status,id,owner).run();return out({ok:true});
+ }
+ if(action==='stage'||action==='done'){
+  if(!existing)return out({error:'Item not found.'},404);
+  let stage=String(form.get('stage')||'')||null;
+  if(action==='stage'){
+   if(existing.kind!=='folder'||existing.parent)return out({error:'Only projects have stages.'},400);
+   if(stage&&!await env.DB!.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND kind='stage'").bind(stage,owner).first())return out({error:'Stage not found.'},404);
+  }else{if(existing.kind!=='task')return out({error:'Invalid task.'},400);stage=stage==='done'?'done':null;}
+  await env.DB!.prepare('UPDATE entries SET stage=? WHERE id=? AND owner=?').bind(stage,id,owner).run();return out({ok:true});
+ }
+ if(action==='delete'){
+  if(!existing)return out({error:'Item not found.'},404);
+  if(existing.kind==='stage'&&await env.DB!.prepare('SELECT id FROM entries WHERE stage=? AND owner=? LIMIT 1').bind(id,owner).first())return out({error:'Move projects out of this stage before removing it.'},409);
+  const children=await env.DB!.prepare('SELECT id FROM entries WHERE parent=? AND owner=? LIMIT 1').bind(id,owner).first();if(children)return out({error:'Remove the contents before deleting this folder.'},409);
+  if(existing.key&&!await env.DB.prepare('SELECT id FROM entries WHERE key=? AND id!=? LIMIT 1').bind(existing.key,id).first())await env.BUCKET!.delete(existing.key);
+  await env.DB!.prepare('DELETE FROM entries WHERE id=? AND owner=?').bind(id,owner).run();return out({ok:true});
+ }
+ const rawQuantity=String(form.get('quantity')||'').trim();const quantity=rawQuantity===''?null:Number(rawQuantity);
+ if(quantity!==null&&(!Number.isFinite(quantity)||quantity<0))return out({error:'Quantity must be a nonnegative number.'},400);
+ const poNumber=form.has('po_number')?String(form.get('po_number')||'').trim():existing?.po_number||null;
+ const shopDrawings=form.has('shop_drawings')?String(form.get('shop_drawings')||''):existing?.shop_drawings||null;
+ if((poNumber?.length||0)>100||shopDrawings&&!['yes','no'].includes(shopDrawings))return out({error:'Invalid PO number or shop drawing requirement.'},400);
+ const name=String(form.get('name')||'').trim().slice(0,300);const content=String(form.get('content')||'').trim().slice(0,20000);const date=String(form.get('date')||'');
+ const itemnumber=String(form.get('itemnumber')||'').trim().slice(0,50),manufacturer=String(form.get('manufacturer')||'').trim().slice(0,200),model=String(form.get('model')||'').trim().slice(0,200),color=String(form.get('color')||'#607d8b');
+ if(!/^#[0-9a-fA-F]{6}$/.test(color))return out({error:'Choose a valid color.'},400);
+ if(action==='edit'){
+  if(!existing)return out({error:'Item not found.'},404);
+  if(!name)return out({error:'Enter a name or note.'},400);
+  if(existing.kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND lower(name)=lower(?) AND id!=?").bind(owner,name,id).first())return out({error:'A stage with this name already exists.'},409);
+  if(existing.kind==='item'){
+   if(!itemnumber)return out({error:'Enter an item number.'},400);
+   const dupe=await env.DB!.prepare("SELECT id FROM entries WHERE owner=? AND parent=? AND kind='item' AND lower(itemnumber)=lower(?) AND id!=?").bind(owner,existing.parent,itemnumber,id).first();if(dupe)return out({error:'This item number already exists in the folder.'},409);
+  }
+  const update=env.DB!.prepare('UPDATE entries SET name=?,content=?,date=?,itemnumber=?,manufacturer=?,model=?,quantity=?,color=?,po_number=?,shop_drawings=? WHERE id=? AND owner=?').bind(name,content,date,itemnumber||null,manufacturer||null,model||null,quantity,color,poNumber||null,shopDrawings||null,id,owner);
+  if(existing.kind==='status'&&existing.name!==name)await env.DB.batch([update,env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(name,owner,existing.name)]);else await update.run();return out({ok:true});
+ }
+ if(existing)return out({ok:true});
+ const parent=String(form.get('parent')||'')||null;const kind=String(form.get('kind')||'folder');
+ if(parent){const folder=await env.DB!.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND kind IN ('folder','item')").bind(parent,owner).first();if(!folder)return out({error:'Folder not found.'},404);}
+ if(!['folder','link','note','file','task','stage','item','status'].includes(kind))return out({error:'Invalid item type.'},400);
+ if(!['folder','stage','status'].includes(kind)&&!parent)return out({error:'Open a project folder first.'},400);
+ if(kind==='item'){
+  if(!itemnumber)return out({error:'Enter an item number.'},400);
+  if(await env.DB!.prepare("SELECT id FROM entries WHERE owner=? AND parent=? AND kind='item' AND lower(itemnumber)=lower(?)").bind(owner,parent,itemnumber).first())return out({error:'This item number already exists in the folder.'},409);
+ }
+ if(kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND (lower(name)=lower(?) OR (?!='' AND content=?))").bind(owner,name,content,content).first())return out({error:'This stage already exists. Select it to edit it.'},409);
+ let url=String(form.get('url')||'').trim();let key=null;let mime=null;let size=null;let title=name;
+ if(kind==='link'){try{if(new URL(url).protocol!=='https:')throw 0;}catch{return out({error:'Enter a valid HTTPS document link.'},400);}}
+ if(kind==='file'){
+  const file=form.get('file');if(!(file instanceof File))return out({error:'Choose a file.'},400);if(file.size>25*1024*1024)return out({error:'Files can be up to 25 MB. Use a Drive link for larger files.'},400);
+  title=file.name.slice(0,300);mime=file.type||'application/octet-stream';size=file.size;key=owner+'/'+id;await env.BUCKET!.put(key,file.stream(),{httpMetadata:{contentType:mime}});
+ }
+ if(!title || (kind==='note'&&!content))return out({error:'Enter the required fields.'},400);
+ if(kind==='note'&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return out({error:'Choose a date.'},400);
+ const insert=env.DB!.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,url,key,mime,size,date,stage,itemnumber,manufacturer,model,quantity,color,created,po_number,shop_drawings) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,owner,parent,kind,title,content,url||null,key,mime,size,date||null,kind==='item'?String(form.get('stage')||'Pending quote'):null,itemnumber||null,manufacturer||null,model||null,quantity,color,new Date().toISOString(),poNumber||null,shopDrawings||null);
+ if(kind==='status'&&content&&content!==title)await env.DB.batch([insert,env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(title,owner,content)]);else await insert.run();return out({ok:true});
+ }catch{return out({error:'Could not save. Please try again.'},500);}
+}
+
+
+
+export async function pmFile(req:Request,env:PMEnv){const owner='premier-workspace';if(!owner)return new Response('Sign in required',{status:401});const id=new URL(req.url).searchParams.get('id');const row=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();if(!row?.key)return new Response('Not found',{status:404});const file=await env.BUCKET!.get(row.key);if(!file)return new Response('Not found',{status:404});return new Response(file.body,{headers:{'Content-Type':row.mime==='application/pdf'?'application/pdf':'application/octet-stream','Content-Disposition':(row.mime==='application/pdf'?'inline':'attachment')+"; filename*=UTF-8''"+encodeURIComponent(row.name),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
+

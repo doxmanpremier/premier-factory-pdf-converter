@@ -36,7 +36,8 @@ test("requires login and renders the login screen", async () => {
     /^text\/html\b/i,
   );
   const html = await response.text();
-  assert.match(html, /Factory Quote Converter/);
+  assert.match(html, /Premier Convertor\/PM Tool/);
   assert.match(html, /name="username"/);
   assert.match(html, /name="password"/);
 });
+

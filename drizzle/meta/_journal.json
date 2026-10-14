@@ -36,6 +36,20 @@
       "when": 1787330025492,
       "tag": "0004_puzzling_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791935131824,
+      "tag": "0005_chemical_revanche",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791941093803,
+      "tag": "0006_nappy_clea",
+      "breakpoints": true
     }
   ]
 }

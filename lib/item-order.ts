@@ -1,0 +1,2 @@
+export function orderedItems(entries:any[],parent:string){return entries.filter(i=>i.kind==='item'&&i.parent===parent).sort((a,b)=>(a.order_position??Number.MAX_SAFE_INTEGER)-(b.order_position??Number.MAX_SAFE_INTEGER)||a.itemnumber.localeCompare(b.itemnumber,undefined,{numeric:true,sensitivity:'base'})||a.id.localeCompare(b.id));}
+export function moveItem(ids:string[],id:string,target:string){const from=ids.indexOf(id),to=ids.indexOf(target);if(from<0||to<0||from===to)return ids;const next=[...ids];next.splice(from,1);next.splice(to,0,id);return next;}

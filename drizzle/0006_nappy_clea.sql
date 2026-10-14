@@ -1,0 +1,1 @@
+ALTER TABLE `entries` ADD `order_position` real;

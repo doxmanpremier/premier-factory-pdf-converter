@@ -1,3 +1,4 @@
+import {pmGet,pmPost,pmFile,initializePM} from './pm-api';
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
@@ -5,6 +6,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  BUCKET: R2Bucket;
   AUTH_USERNAME: string;
   AUTH_PASSWORD_HASH: string;
   SESSION_SIGNING_KEY: string;
@@ -112,9 +114,9 @@ async function isAuthenticated(request: Request, env: Env) {
 }
 
 function loginPage(invalid = false) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Factory Quote Converter</title><style>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Premier Convertor/PM Tool</title><style>
   :root{--ink:#232326;--muted:#686b70;--red:#bd1420;--red-dark:#8f0b14;--line:#cfd0d3}*{box-sizing:border-box}body{display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;color:var(--ink);background:linear-gradient(180deg,#ffffff 0%,#f2f2f3 100%);font:15px/1.45 Inter,Segoe UI,Arial,sans-serif}.login{width:min(440px,100%);padding:32px;border:1px solid var(--line);border-top:4px solid var(--red);border-radius:20px;background:white;box-shadow:0 14px 42px rgba(35,35,38,.12)}.brand{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}.brand img{width:55px;height:55px;object-fit:contain;filter:drop-shadow(0 3px 7px rgba(35,35,38,.16))}.wordmark{display:grid;line-height:1}.wordmark strong{font-size:22px;font-weight:900;letter-spacing:.11em}.wordmark small{margin-top:6px;color:#696b70;font-size:7px;font-weight:800;letter-spacing:.42em;text-align:center}.eyebrow{margin:0 0 7px;color:var(--red);font-size:12px;font-weight:800;letter-spacing:.12em}h1{margin:0;font-size:32px;line-height:1.08;letter-spacing:-.03em}p{margin:10px 0 22px;color:var(--muted)}label{display:grid;gap:6px;margin-top:15px;color:#454548;font-size:13px;font-weight:750}input{width:100%;padding:12px;border:1px solid #cfd0d2;border-radius:9px;color:var(--ink);background:white;font:inherit}input:focus{outline:3px solid rgba(189,20,32,.13);border-color:var(--red)}button{width:100%;margin-top:22px;padding:13px 17px;border:0;border-radius:9px;color:white;background:var(--red);font:inherit;font-weight:800;cursor:pointer}button:hover{background:var(--red-dark)}.error{margin:14px 0 0;padding:10px 12px;border-radius:8px;color:#9f2632;background:#fae9eb;font-weight:700}
-  </style></head><body><main class="login"><div class="brand"><img src="https://premierfsg.com/wp-content/uploads/2024/02/premiere_logomark-chrome.png" alt="Premier Foodservice Group logo"><span class="wordmark"><strong>PREMIER</strong><small>FOODSERVICE GROUP</small></span></div><p class="eyebrow">SECURE PROJECT TOOLS</p><h1>Factory Quote Converter</h1><p>Sign in to access the converter and saved projects.</p><form method="post" action="/login"><label>Username<input name="username" type="text" autocomplete="username" required autofocus></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign In</button>${invalid ? '<p class="error" role="alert">The username or password is incorrect.</p>' : ""}</form></main></body></html>`;
+  </style></head><body><main class="login"><div class="brand"><img src="https://premierfsg.com/wp-content/uploads/2024/02/premiere_logomark-chrome.png" alt="Premier Foodservice Group logo"><span class="wordmark"><strong>PREMIER</strong><small>FOODSERVICE GROUP</small></span></div><p class="eyebrow">SECURE PROJECT TOOLS</p><h1>Premier Convertor/PM Tool</h1><p>One login for quote conversion and project management.</p><form method="post" action="/login"><label>Username<input name="username" type="text" autocomplete="username" required autofocus></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign In</button>${invalid ? '<p class="error" role="alert">The username or password is incorrect.</p>' : ""}</form></main></body></html>`;
 }
 
 async function handleLogin(request: Request, env: Env) {
@@ -314,12 +316,22 @@ const worker = {
 
     if (url.pathname === "/login") return handleLogin(request, env);
     if (url.pathname === "/logout" && request.method === "POST") return handleLogout();
-    const isAgentPreview = url.hostname === "terminal.local";
-    if (!isAgentPreview && !(await isAuthenticated(request, env))) {
+
+    if (!(await isAuthenticated(request, env))) {
       if (url.pathname.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
       return Response.redirect(new URL("/login", request.url), 303);
     }
 
+    if(url.pathname==='/api/pm/entries'){
+      await initializePM(env);
+      if(request.method==='GET')return pmGet(request,env);
+      if(request.method==='POST')return pmPost(request,env);
+      return new Response('Method not allowed',{status:405});
+    }
+    if(url.pathname==='/api/pm/file')return pmFile(request,env);
+    if(url.pathname==='/pm'){
+      return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Premier Convertor/PM Tool · Project Management</title><link rel="stylesheet" href="/pm-bundle.css"></head><body><div id="root"></div><script src="/pm-bundle.js"></script></body></html>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'private, no-store'}});
+    }
     if (url.pathname === "/api/projects") {
       return handleProjects(request, env);
     }
@@ -335,6 +347,10 @@ const worker = {
       }, allowedWidths);
     }
 
+    if(url.pathname!=='/'&&!url.pathname.startsWith('/api/')){
+      const asset=await env.ASSETS.fetch(request);
+      if(asset.status!==404){const headers=new Headers(asset.headers);headers.set('cache-control','private, no-store');return new Response(asset.body,{status:asset.status,headers});}
+    }
     const response = await handler.fetch(request, env, ctx);
     if (url.pathname === "/" || url.pathname === "/converter.html") {
       const headers = new Headers(response.headers);
@@ -348,3 +364,4 @@ const worker = {
 };
 
 export default worker;
+

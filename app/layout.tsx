@@ -2,11 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Premier Factory Quote Converter",
+  title: "Premier Convertor/PM Tool",
   description: "Convert Cline's, Halton, and Low Temp Industries factory quote PDFs into AutoQuotes-ready files.",
-  other: {
-    "codex-preview": "development",
-  },
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
