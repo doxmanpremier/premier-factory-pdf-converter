@@ -20,16 +20,25 @@ export async function pmPost(req:Request,env:PMEnv){
  try {
  const form=await req.formData();const action=String(form.get('action')||'create');const id=String(form.get('id')||crypto.randomUUID());
  const existing=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();
+ const scope=String(existing?.kind==='status'?existing.stage_scope||'':form.get('stage_scope')||'')||null;
+ if((action==='deleteStatus'||existing?.kind==='status'||form.get('kind')==='status')&&!scope)return out({error:'Open a job to change its stages.'},400);
+ if(scope&&!await env.DB.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND kind='folder' AND parent IS NULL").bind(scope,owner).first())return out({error:'Job not found.'},404);
+ const scopeSQL=scope?" AND id IN (WITH RECURSIVE job(id) AS (SELECT id FROM entries WHERE id=? AND owner=? UNION ALL SELECT e.id FROM entries e JOIN job j ON e.parent=j.id WHERE e.owner=?) SELECT id FROM job)":"";
+ const scopedArgs=scope?[scope,owner,owner]:[];
+ if(action==='jobCategory'){
+  const category=String(form.get('job_category')||'');if(!existing||existing.kind!=='folder'||existing.parent||!['quoting','awarded'].includes(category))return out({error:'Choose a valid job section.'},400);
+  await env.DB.prepare('UPDATE entries SET job_category=? WHERE id=? AND owner=?').bind(category,id,owner).run();return out({ok:true});
+ }
  if(action==='deleteStatus'){
   const name=String(form.get('name')||''),replacement=String(form.get('replacement')||'');
-  const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND kind IN ('status','status_removed')").bind(owner).all<any>();
-  const active=statusesFor(rows.results);if(!active.some(s=>s.name===name))return out({error:'Stage not found.'},404);
+  const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND kind IN ('status','status_removed') AND stage_scope IS ?").bind(owner,scope).all<any>();
+  const active=statusesFor(rows.results,scope);if(!active.some(s=>s.name===name))return out({error:'Stage not found.'},404);
   if(active.length<2||replacement===name||!active.some(s=>s.name===replacement))return out({error:'Choose another active stage for these items.'},400);
   const stored=rows.results.find(s=>s.kind==='status'&&s.name===name);const source=stored?.content||name;
-  const statements=[env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(replacement,owner,name)];
+  const statements=[env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(replacement,owner,name,...scopedArgs)];
   if(defaultStatuses.some(s=>s.name===source)){
    if(stored)statements.push(env.DB.prepare("UPDATE entries SET kind='status_removed',content=? WHERE id=? AND owner=?").bind(source,stored.id,owner));
-   else statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,created) VALUES (?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status_removed',name,source,new Date().toISOString()));
+   else statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,created,stage_scope) VALUES (?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status_removed',name,source,new Date().toISOString(),scope));
   }else if(stored)statements.push(env.DB.prepare('DELETE FROM entries WHERE id=? AND owner=?').bind(stored.id,owner));
   await env.DB.batch(statements);return out({ok:true});
  }
@@ -107,6 +116,7 @@ export async function pmPost(req:Request,env:PMEnv){
   if(existing.key&&!await env.DB.prepare('SELECT id FROM entries WHERE key=? AND id!=? LIMIT 1').bind(existing.key,id).first())await env.BUCKET!.delete(existing.key);
   await env.DB!.prepare('DELETE FROM entries WHERE id=? AND owner=?').bind(id,owner).run();return out({ok:true});
  }
+ const category=String(form.get('job_category')||existing?.job_category||'quoting');if(!['quoting','awarded'].includes(category))return out({error:'Invalid job section.'},400);
  const rawQuantity=String(form.get('quantity')||'').trim();const quantity=rawQuantity===''?null:Number(rawQuantity);
  if(quantity!==null&&(!Number.isFinite(quantity)||quantity<0))return out({error:'Quantity must be a nonnegative number.'},400);
  const poNumber=form.has('po_number')?String(form.get('po_number')||'').trim():existing?.po_number||null;
@@ -118,13 +128,13 @@ export async function pmPost(req:Request,env:PMEnv){
  if(action==='edit'){
   if(!existing)return out({error:'Item not found.'},404);
   if(!name)return out({error:'Enter a name or note.'},400);
-  if(existing.kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND lower(name)=lower(?) AND id!=?").bind(owner,name,id).first())return out({error:'A stage with this name already exists.'},409);
+  if(existing.kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND lower(name)=lower(?) AND id!=? AND stage_scope IS ?").bind(owner,name,id,scope).first())return out({error:'A stage with this name already exists.'},409);
   if(existing.kind==='item'){
    if(!itemnumber)return out({error:'Enter an item number.'},400);
    const dupe=await env.DB!.prepare("SELECT id FROM entries WHERE owner=? AND parent=? AND kind='item' AND lower(itemnumber)=lower(?) AND id!=?").bind(owner,existing.parent,itemnumber,id).first();if(dupe)return out({error:'This item number already exists in the folder.'},409);
   }
-  const update=env.DB!.prepare('UPDATE entries SET name=?,content=?,date=?,itemnumber=?,manufacturer=?,model=?,quantity=?,color=?,po_number=?,shop_drawings=? WHERE id=? AND owner=?').bind(name,content,date,itemnumber||null,manufacturer||null,model||null,quantity,color,poNumber||null,shopDrawings||null,id,owner);
-  if(existing.kind==='status'&&existing.name!==name)await env.DB.batch([update,env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(name,owner,existing.name)]);else await update.run();return out({ok:true});
+  const update=env.DB!.prepare('UPDATE entries SET name=?,content=?,date=?,itemnumber=?,manufacturer=?,model=?,quantity=?,color=?,po_number=?,shop_drawings=?,job_category=? WHERE id=? AND owner=?').bind(name,content,date,itemnumber||null,manufacturer||null,model||null,quantity,color,poNumber||null,shopDrawings||null,existing.kind==='folder'&&!existing.parent?category:null,id,owner);
+  if(existing.kind==='status'&&existing.name!==name)await env.DB.batch([update,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(name,owner,existing.name,...scopedArgs)]);else await update.run();return out({ok:true});
  }
  if(existing)return out({ok:true});
  const parent=String(form.get('parent')||'')||null;const kind=String(form.get('kind')||'folder');
@@ -135,7 +145,7 @@ export async function pmPost(req:Request,env:PMEnv){
   if(!itemnumber)return out({error:'Enter an item number.'},400);
   if(await env.DB!.prepare("SELECT id FROM entries WHERE owner=? AND parent=? AND kind='item' AND lower(itemnumber)=lower(?)").bind(owner,parent,itemnumber).first())return out({error:'This item number already exists in the folder.'},409);
  }
- if(kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND (lower(name)=lower(?) OR (?!='' AND content=?))").bind(owner,name,content,content).first())return out({error:'This stage already exists. Select it to edit it.'},409);
+ if(kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND stage_scope IS ? AND (lower(name)=lower(?) OR (?!='' AND content=?))").bind(owner,scope,name,content,content).first())return out({error:'This stage already exists. Select it to edit it.'},409);
  let url=String(form.get('url')||'').trim();let key=null;let mime=null;let size=null;let title=name;
  if(kind==='link'){try{if(new URL(url).protocol!=='https:')throw 0;}catch{return out({error:'Enter a valid HTTPS document link.'},400);}}
  if(kind==='file'){
@@ -144,8 +154,8 @@ export async function pmPost(req:Request,env:PMEnv){
  }
  if(!title || (kind==='note'&&!content))return out({error:'Enter the required fields.'},400);
  if(kind==='note'&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return out({error:'Choose a date.'},400);
- const insert=env.DB!.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,url,key,mime,size,date,stage,itemnumber,manufacturer,model,quantity,color,created,po_number,shop_drawings) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,owner,parent,kind,title,content,url||null,key,mime,size,date||null,kind==='item'?String(form.get('stage')||'Pending quote'):null,itemnumber||null,manufacturer||null,model||null,quantity,color,new Date().toISOString(),poNumber||null,shopDrawings||null);
- if(kind==='status'&&content&&content!==title)await env.DB.batch([insert,env.DB.prepare("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?").bind(title,owner,content)]);else await insert.run();return out({ok:true});
+ const insert=env.DB!.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,url,key,mime,size,date,stage,itemnumber,manufacturer,model,quantity,color,created,po_number,shop_drawings,job_category,stage_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,owner,parent,kind,title,content,url||null,key,mime,size,date||null,kind==='item'?String(form.get('stage')||'Pending quote'):null,itemnumber||null,manufacturer||null,model||null,quantity,color,new Date().toISOString(),poNumber||null,shopDrawings||null,kind==='folder'&&!parent?category:null,kind==='status'?scope:null);
+ if(kind==='status'&&content&&content!==title)await env.DB.batch([insert,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(title,owner,content,...scopedArgs)]);else await insert.run();return out({ok:true});
  }catch{return out({error:'Could not save. Please try again.'},500);}
 }
 
