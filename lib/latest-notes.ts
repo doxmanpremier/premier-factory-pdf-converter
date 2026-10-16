@@ -1,0 +1,1 @@
+export function latestNotes(entries:any[]){const notes=new Map<string,any>();for(const entry of entries){if(entry.kind!=='note'||!entry.parent||!entry.content?.trim())continue;const previous=notes.get(entry.parent);if(!previous||entry.created>previous.created||(entry.created===previous.created&&entry.id>previous.id))notes.set(entry.parent,entry);}return notes;}

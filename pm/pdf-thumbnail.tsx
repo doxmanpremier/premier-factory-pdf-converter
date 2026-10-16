@@ -1,0 +1,10 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {FileText} from 'lucide-react';
+let library:Promise<any>|null=null;
+function loadPDF(){if(!library)library=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/pm-pdf.js';script.onload=()=>{const pdf=(window as any).pdfjsLib;pdf.GlobalWorkerOptions.workerSrc='/pm-pdf.worker.js';resolve(pdf);};script.onerror=()=>{library=null;script.remove();reject(Error('PDF preview unavailable'));};document.head.appendChild(script);});return library;}
+export default function PdfThumbnail({id,name}:{id:string,name:string}){
+ const host=useRef<HTMLSpanElement>(null),canvas=useRef<HTMLCanvasElement>(null);const [state,setState]=useState('loading');
+ useEffect(()=>{let canceled=false;let task:any=null;const observer=new IntersectionObserver(async entries=>{if(!entries.some(e=>e.isIntersecting))return;observer.disconnect();try{const pdf=await loadPDF();if(canceled)return;task=pdf.getDocument({url:'/api/pm/file?id='+encodeURIComponent(id),withCredentials:true,isEvalSupported:false});const document=await task.promise;if(canceled)return;const page=await document.getPage(1);const original=page.getViewport({scale:1});const viewport=page.getViewport({scale:Math.min(220/original.width,160/original.height)});if(!canvas.current||canceled)return;canvas.current.width=Math.ceil(viewport.width);canvas.current.height=Math.ceil(viewport.height);await page.render({canvasContext:canvas.current.getContext('2d'),viewport}).promise;if(!canceled)setState('ready');}catch{if(!canceled)setState('failed');}finally{task?.destroy();}});if(host.current)observer.observe(host.current);return ()=>{canceled=true;observer.disconnect();task?.destroy();};},[id]);
+ return <span ref={host} className={'pdf-thumbnail '+state} title={state==='failed'?'Preview unavailable. Open the PDF to view it.':'First page of '+name}><canvas ref={canvas} role="img" aria-label={'First-page preview of '+name} hidden={state!=='ready'}/>{state!=='ready'&&<><FileText size={22}/><small>{state==='loading'?'Loading…':'PDF'}</small></>}</span>;
+}

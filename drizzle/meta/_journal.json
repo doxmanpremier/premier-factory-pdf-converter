@@ -57,6 +57,27 @@
       "when": 1792000000000,
       "tag": "0007_independent_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792024486167,
+      "tag": "0008_shared_job_group_stages",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792025171905,
+      "tag": "0009_item_quote_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1792089016864,
+      "tag": "0010_shipping_details",
+      "breakpoints": true
     }
   ]
 }

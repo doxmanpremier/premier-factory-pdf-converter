@@ -1,0 +1,7 @@
+import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';import test from 'node:test';
+const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/latest-notes.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:api});
+test('latest note is chosen by creation time within each item, independent of chosen note date',()=>{
+ const entries=[{id:'old',kind:'note',parent:'a',content:'Older update',created:'2026-10-01T10:00:00Z',date:'2026-12-01'},{id:'new',kind:'note',parent:'a',content:'Most recent update',created:'2026-10-15T10:00:00Z',date:'2026-01-01'},{id:'other',kind:'note',parent:'b',content:'Other item',created:'2026-10-16T10:00:00Z'},{id:'task',kind:'task',parent:'a',content:'Not a note',created:'2026-12-01T10:00:00Z'},{id:'blank',kind:'note',parent:'a',content:'  ',created:'2026-12-01T10:00:00Z'}];
+ const result=api.latestNotes(entries);assert.equal(result.get('a').id,'new');assert.equal(result.get('b').id,'other');assert.equal(result.has('missing'),false);assert.equal(entries.length,5);
+});
+test('equal creation times use the same deterministic ID tie break as the note feed',()=>{const result=api.latestNotes([{id:'a',kind:'note',parent:'item',content:'First',created:'2026-10-15T10:00:00Z'},{id:'z',kind:'note',parent:'item',content:'Second',created:'2026-10-15T10:00:00Z'}]);assert.equal(result.get('item').id,'z');});

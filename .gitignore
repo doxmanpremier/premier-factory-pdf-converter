@@ -44,3 +44,7 @@ next-env.d.ts
 /public/pm-bundle.css
 /public/pm.html
 /tsconfig.tsbuildinfo
+
+# Generated PDF preview runtime (rebuilt by build-pm.mjs)
+/public/pm-pdf.js
+/public/pm-pdf.worker.js

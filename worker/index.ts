@@ -1,3 +1,4 @@
+import {pmAssetVersion} from './pm-assets';
 import {pmGet,pmPost,pmFile,initializePM} from './pm-api';
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
@@ -330,7 +331,7 @@ const worker = {
     }
     if(url.pathname==='/api/pm/file')return pmFile(request,env);
     if(url.pathname==='/pm'){
-      return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Premier Convertor/PM Tool · Project Management</title><link rel="stylesheet" href="/pm-bundle.css"></head><body><div id="root"></div><script src="/pm-bundle.js"></script></body></html>',{headers:{'content-type':'text/html; charset=utf-8','cache-control':'private, no-store'}});
+      return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Premier Convertor/PM Tool · Project Management</title><link rel="stylesheet" href="/pm-bundle.css?v=${pmAssetVersion}"></head><body><div id="root"></div><script src="/pm-bundle.js?v=${pmAssetVersion}"></script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'private, no-store'}});
     }
     if (url.pathname === "/api/projects") {
       return handleProjects(request, env);

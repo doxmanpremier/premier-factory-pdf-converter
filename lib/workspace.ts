@@ -1,0 +1,7 @@
+export function matchesDocument(entry:{name:string},query:string){return entry.name.toLowerCase().includes(query.trim().toLowerCase());}
+export function moveDestinations(entries:any[],movingID:string){
+ const byID=new Map(entries.map(e=>[e.id,e]));
+ const destinations=entries.filter(e=>['folder','item'].includes(e.kind)).filter(e=>{let node:any=e;const seen=new Set<string>();while(node){if(node.id===movingID||seen.has(node.id))return false;seen.add(node.id);node=byID.get(node.parent);}return true;}).map(e=>{const parts:string[]=[];let node:any=e;let root:any=e;const seen=new Set<string>();while(node&&!seen.has(node.id)){seen.add(node.id);parts.unshift(node.kind==='item'?[node.itemnumber,node.name,node.manufacturer,node.model].filter(Boolean).join(' · '):node.name);root=node;node=byID.get(node.parent);}return {id:e.id,label:(root.job_category==='awarded'?'Awarded':'Quoting')+' / '+parts.join(' / ')};}).sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
+ const totals=new Map<string,number>(),counts=new Map<string,number>();destinations.forEach(d=>totals.set(d.label,(totals.get(d.label)||0)+1));return destinations.map(d=>{const count=(counts.get(d.label)||0)+1;counts.set(d.label,count);return {...d,label:d.label+((totals.get(d.label)||0)>1?' ('+count+')':'')};});
+}
+export function selectionForVisible(ids:string[],visible:any[]){const visibleIDs=new Set(visible.map(i=>i.id));return {visible:ids.filter(id=>visibleIDs.has(id)),hidden:ids.filter(id=>!visibleIDs.has(id))};}
