@@ -1,4 +1,5 @@
 
+import {moneyCents,pricingSnapshot,pricingFields,markedUpCents,landedSell,markupNeedsRecalculation} from '../lib/pricing';
 import transfer from './pm-transfer.json';
 import {defaultStatuses,statusesFor} from '../lib/stages';
 type PMEnv={DB:D1Database;BUCKET:R2Bucket};
@@ -90,14 +91,14 @@ export async function pmPost(req:Request,env:PMEnv){
   await env.DB.batch(ids.map((itemId,index)=>env.DB.prepare('UPDATE entries SET order_position=? WHERE id=? AND owner=? AND parent=?').bind(index,itemId,owner,parent)));
   return out({ok:true});
  }
- if(['bulkStatus','bulkNote','bulkPO','bulkQuote','bulkShipping','bulkDrawings','bulkDocument','metadata'].includes(action)){
+ if(['bulkUpdate','bulkStatus','bulkNote','bulkPO','bulkQuote','bulkShipping','bulkDrawings','bulkDocument','metadata'].includes(action)){
   const ids=action==='metadata'?[id]:JSON.parse(String(form.get('ids')||'[]'));
   if(!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(i=>typeof i!=='string')||new Set(ids).size!==ids.length)return out({error:'Select between 1 and 500 different items.'},400);
   const targets=await Promise.all(ids.map(i=>env.DB.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND kind='item'").bind(i,owner).first()));
   if(targets.some(i=>!i)||targets.some(i=>i?.parent!==targets[0]?.parent))return out({error:'Select equipment items in the same project folder.'},400);
   const statements:any[]=[];
   if(action==='bulkDocument'){
-   const section=String(form.get('document_section')||'');if(!['','quote','po','drawings'].includes(section))return out({error:'Choose Quote, PO, Drawings, or Files & folders.'},400);const content=section?'item-document:'+section:null;
+   const section=String(form.get('document_section')||'');if(!['','quote','po','drawings'].includes(section))return out({error:'Choose Quote, PO, Drawings, or Files & folders.'},400);const content=section?'item-document:'+section:null;const drawingStatus=section==='drawings'?String(form.get('drawing_status')||'unsigned'):null;if(drawingStatus&&!['unsigned','revisions_needed','approved'].includes(drawingStatus))return out({error:'Choose a valid drawing status.'},400);
    const file=form.get('file');const url=String(form.get('url')||'').trim();
    let key:string|null=null,mime:string|null=null,size:number|null=null,name=String(form.get('name')||'').trim().slice(0,300);
    const kind=file instanceof File?'file':'link';
@@ -108,9 +109,29 @@ export async function pmPost(req:Request,env:PMEnv){
    }else{
     try{if(new URL(url).protocol!=='https:'||!name)throw 0;}catch{return out({error:'Enter a document name and valid HTTPS link.'},400);}
    }
-   for(const target of targets)statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,url,key,mime,size,created,content) VALUES (?,?,?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,target!.id,kind,name,kind==='link'?url:null,key,mime,size,new Date().toISOString(),content));
+   for(const target of targets)statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,url,key,mime,size,created,content,stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,target!.id,kind,name,kind==='link'?url:null,key,mime,size,new Date().toISOString(),content,drawingStatus));
    try{await env.DB.batch(statements);}catch(error){if(key)await env.BUCKET.delete(key);throw error;}
    return out({ok:true,count:targets.length});
+  }else if(action==='bulkUpdate'){
+   const fields=['stage','quote_number','po_number','shipping_destination','expected_receiving_date','shop_drawings'];
+   const changes=fields.filter(field=>form.has(field));const content=String(form.get('content')||'').trim(),date=String(form.get('date')||'');
+   if(!changes.length&&!content)return out({error:'Change a field or enter a note first.'},400);
+   if(content&&(content.length>20000||!date||!validShipping('',date)))return out({error:'Enter a valid note and date.'},400);
+   const values=Object.fromEntries(changes.map(field=>[field,String(form.get(field)||'').trim()]));
+   if((values.quote_number||'').length>100||(values.po_number||'').length>100)return out({error:'Numbers must be 100 characters or fewer.'},400);
+   if(!validShipping(values.shipping_destination||'',values.expected_receiving_date||''))return out({error:'Choose a valid shipping destination and receiving date.'},400);
+   if(form.has('shop_drawings')&&!['yes','no'].includes(values.shop_drawings))return out({error:'Choose Yes or No for shop drawings.'},400);
+   if(form.has('stage')){
+    let root=await env.DB.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND kind='folder'").bind(targets[0]!.parent,owner).first<any>();let depth=0;
+    while(root?.parent&&depth++<100)root=await env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(root.parent,owner).first<any>();
+    if(!root||root.parent)return out({error:'Project not found.'},400);
+    const group=root.job_category||'quoting',rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND stage_scope=? AND kind IN ('status','status_removed')").bind(owner,group).all<any>();
+    if(!statusesFor(rows.results,group).some(s=>s.name===values.stage))return out({error:'Choose an active stage for this job.'},400);
+   }
+   for(const target of targets){
+    if(changes.length)statements.push(env.DB.prepare('UPDATE entries SET '+changes.map(field=>field+'=?').join(',')+' WHERE id=? AND owner=?').bind(...changes.map(field=>values[field]||null),target!.id,owner));
+    if(content)statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,date,created) VALUES (?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,target!.id,'note','Shared item update',content,date,new Date().toISOString()));
+   }
   }else if(action==='bulkNote'){
    const content=String(form.get('content')||'').trim(),date=String(form.get('date')||'');
    if(!content||content.length>20000||!/^\d{4}-\d{2}-\d{2}$/.test(date))return out({error:'Enter a note and date.'},400);
@@ -163,6 +184,44 @@ export async function pmPost(req:Request,env:PMEnv){
    if(stage&&!await env.DB!.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND kind='stage'").bind(stage,owner).first())return out({error:'Stage not found.'},404);
   }else{if(existing.kind!=='task')return out({error:'Invalid task.'},400);stage=stage==='done'?'done':null;}
   await env.DB!.prepare('UPDATE entries SET stage=? WHERE id=? AND owner=?').bind(stage,id,owner).run();return out({ok:true});
+ }
+ if(action==='pricing'){
+  if(!existing||existing.kind!=='item')return out({error:'Item not found.'},404);
+  const type=String(form.get('type')||''),reason=String(form.get('reason')||'').trim(),reference=String(form.get('reference')||'').trim(),requestID=String(form.get('request_id')||'');
+  if(!['pricing_update','change_order','absorbed'].includes(type)||reason.length>2000||reference.length>100||!/^[-a-zA-Z0-9]{10,100}$/.test(requestID))return out({error:'Choose a valid change type.'},400);
+  const eventID='price:'+requestID;const previous=await env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(eventID,owner).first<any>();if(previous)return previous.parent===id&&previous.kind==='price_event'?out({ok:true}):out({error:'Change identifier conflict.'},409);
+  let event:any={type,reason,reference};const before=pricingSnapshot(existing);
+  try{if(type==='pricing_update'){
+   const expected=JSON.parse(String(form.get('expected')||'null'));if(JSON.stringify(expected)!==JSON.stringify(before))return out({error:'Pricing changed. Refresh before saving.'},409);
+   const after:any={};for(const field of pricingFields)after[field]=form.has(field)?moneyCents(String(form.get(field)||'')):before[field];
+   after.pricing_mode=String(form.get('pricing_mode')||'manual');if(!['manual','markup'].includes(after.pricing_mode))throw Error();after.markup_percent=after.pricing_mode==='markup'?Number(form.get('markup_percent')):null;if(after.pricing_mode==='markup'){if(after.unit_cost_cents===null||!String(form.get('markup_percent')||'').trim())throw Error();after.unit_price_cents=before.unit_price_cents!==null&&form.get('recalculate_sell')!=='yes'&&before.pricing_mode==='markup'&&before.markup_percent===after.markup_percent?before.unit_price_cents:markedUpCents(after.unit_cost_cents,after.markup_percent);}
+
+   if(form.get('landed_markup')==='yes'&&after.pricing_mode==='markup'&&markupNeedsRecalculation(before,after,form.get('recalculate_sell')==='yes'))after.quoted_total_cents=landedSell({...after,quantity:existing.quantity},after.markup_percent);
+   const treatment=String(form.get('treatment')||'')||'update';
+   if(treatment==='initial'&&pricingFields.some(f=>before[f]!==null))return out({error:'Pricing already exists. Refresh before saving.'},400);
+   if(!['initial','update','change_order','absorbed'].includes(treatment))return out({error:'Invalid pricing update.'},400);
+   if(treatment==='absorbed'&&(after.unit_price_cents!==before.unit_price_cents||after.freight_charge_cents!==before.freight_charge_cents))return out({error:'Keep sell amounts unchanged for an absorbed cost.'},400);
+   event={...event,before,after,treatment};
+  }else{const amount=type==='absorbed'?0:moneyCents(String(form.get('amount')||''),true);const cost=moneyCents(String(form.get('cost')||''),true);if(amount===null||cost===null)return out({error:'Enter customer and cost amounts (zero is allowed).'},400);event={...event,amount_cents:amount,cost_cents:cost};}
+  }catch{return out({error:'Enter valid amounts with at most two decimal places.'},400);}
+  const content=JSON.stringify(event),created=new Date().toISOString();
+  if(type==='pricing_update'){
+   const where="id=? AND owner=? AND unit_price_cents IS ? AND unit_cost_cents IS ? AND freight_cost_cents IS ? AND freight_charge_cents IS ? AND post_award_cost_cents IS ? AND install_cost_cents IS ? AND quoted_total_cents IS ? AND COALESCE(pricing_mode,'manual')=? AND markup_percent IS ?";const args=[id,owner,...pricingFields.map(f=>before[f]),before.pricing_mode,before.markup_percent];
+   const results=await env.DB.batch([env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) SELECT ?,?,?,?,?,?,? FROM entries WHERE '+where).bind(eventID,owner,id,'price_event','Pricing update',content,created,...args),env.DB.prepare('UPDATE entries SET unit_price_cents=?,unit_cost_cents=?,freight_cost_cents=?,freight_charge_cents=?,post_award_cost_cents=?,install_cost_cents=?,quoted_total_cents=?,pricing_mode=?,markup_percent=? WHERE '+where).bind(...pricingFields.map(f=>event.after[f]),event.after.pricing_mode,event.after.markup_percent,...args)]);
+   const changes=(results[1] as any).meta?.changes??(results[1] as any).changes;if(changes===0)return out({error:'Pricing changed. Refresh before saving.'},409);
+  }else await env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES (?,?,?,?,?,?,?)').bind(eventID,owner,id,'price_event',type==='absorbed'?"Absorbed cost":"Change order",content,created).run();
+  return out({ok:true});
+ }
+ if(action==='bulkDeleteAttachments'){
+  const parent=String(form.get('parent')||''),ids=JSON.parse(String(form.get('ids')||'[]'));
+  if(!parent||!Array.isArray(ids)||!ids.length||ids.length>500||new Set(ids).size!==ids.length||ids.some(i=>typeof i!=='string'))return out({error:'Select between 1 and 500 notes or files.'},400);
+  const itemIDs=JSON.parse(String(form.get('item_ids')||'[]'));if(!Array.isArray(itemIDs)||itemIDs.length>500||new Set(itemIDs).size!==itemIDs.length||itemIDs.some(i=>typeof i!=='string'))return out({error:'Invalid equipment selection.'},400);
+  if(itemIDs.length){const itemRows=await Promise.all(itemIDs.map(i=>env.DB.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND parent=? AND kind='item'").bind(i,owner,parent).first()));if(itemRows.some(i=>!i))return out({error:'Select equipment in the same project folder.'},409);}
+  const targets=await Promise.all(ids.map(i=>env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(i,owner).first<any>()));
+  if(targets.some(i=>!i||!(itemIDs.length?itemIDs.includes(i.parent):i.parent===parent)||!['note','file','link'].includes(i.kind)))return out({error:'Only notes and files in this open project or item can be removed. Refresh and review your selection.'},409);
+  await env.DB.batch(targets.map(i=>env.DB.prepare('DELETE FROM entries WHERE id=? AND owner=? AND parent=?').bind(i.id,owner,i.parent)));
+  for(const key of new Set(targets.map(i=>i.key).filter(Boolean))){try{if(!await env.DB.prepare('SELECT id FROM entries WHERE key=? LIMIT 1').bind(key).first())await env.BUCKET.delete(key);}catch{ /* Retain orphaned bytes if storage cleanup is unavailable. */ }}
+  return out({ok:true,count:ids.length});
  }
  if(action==='delete'){
   if(!existing)return out({error:'Item not found.'},404);

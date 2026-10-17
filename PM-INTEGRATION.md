@@ -15,3 +15,11 @@ Validation: TypeScript check; 34 passing tests covering converter extraction/tot
 Shared stages by quoting/awarded job group, stage reordering, independent board and list ordering, receiving dates and shipping destinations, quick item entry, latest note previews, and PDF thumbnails are included. Item files have Quote, PO, and Drawings sections with per-drawing review status. Shared uploads can target any item document section. Project documents include drawings, specifications, construction schedule, Entire Project Quote PDF, and editable AQ File text. Moving a quoting project to awarded removes Not carried equipment and its attached contents while preserving shared file bytes still used elsewhere.
 
 Apply migrations through 0010 for shared stages, quote references, and receiving/shipping fields. Generated PM and PDF preview assets are recreated by scripts/build-pm.mjs. The public repository intentionally ships an empty worker/pm-transfer.json; production project data remains in authenticated D1/R2 storage. PM tests use synthetic fixtures. The sanitized export passes TypeScript, production build, and all 70 tests.
+
+
+## Latest updates (Site version 82)
+Unified Apply changes for item metadata and notes; bulk note/file removal and drawing approval on shared uploads. Compact inline pricing with pre/post-award unit costs, whole-line freight and install, markup on net plus freight plus install, exact whole-line sell totals and dollar profit. Multiple factory filters and expandable per-factory totals. Item numbers and column headings stay frozen during table scrolling. Post-award cost-only changes preserve Sell net; baseline net, freight and install edits automatically recalculate markup regardless of entry order. Explicit manual Sell net stays manual. Pricing saves retain history, request idempotency and optimistic concurrency.
+
+Apply database migrations through 0013. Public source has no production transfer data, secrets or API keys. PM tests use synthetic fixtures. Generated browser bundles are rebuilt by the normal build command.
+
+Factory and overall totals show pre-award and post-award net side by side with one shared Sell net. Blank post-award costs fall back to pre-award costs; explicit zero is respected.

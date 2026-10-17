@@ -78,6 +78,27 @@
       "when": 1792089016864,
       "tag": "0010_shipping_details",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792175314816,
+      "tag": "0011_item_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792212414474,
+      "tag": "0012_post_award_net",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792213467489,
+      "tag": "0013_install_and_sell_total",
+      "breakpoints": true
     }
   ]
 }

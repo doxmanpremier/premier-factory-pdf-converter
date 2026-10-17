@@ -1,8 +1,9 @@
 import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';import test from 'node:test';import {DatabaseSync} from 'node:sqlite';
 const database=new DatabaseSync(':memory:');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())database.exec(fs.readFileSync('drizzle/'+f,'utf8'));
 const DB={prepare(sql){return {bind(...args){return {first:async()=>database.prepare(sql).get(...args)||null,all:async()=>({results:database.prepare(sql).all(...args)}),run:async()=>database.prepare(sql).run(...args),sql,args};},first:async()=>database.prepare(sql).get()||null,sql,args:[]}},async batch(statements){database.exec('BEGIN');try{const result=statements.map(s=>database.prepare(s.sql).run(...s.args));database.exec('COMMIT');return result;}catch(e){database.exec('ROLLBACK');throw e;}}};
+const pricingAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/pricing.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:pricingAPI,Intl});
 const stageAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/stages.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:stageAPI});const API={};const blobs=new Map();const env={DB,BUCKET:{put:async(key,stream)=>blobs.set(key,await new Response(stream).arrayBuffer()),get:async key=>blobs.has(key)?{body:blobs.get(key)}:null,delete:async key=>blobs.delete(key)}};const transfer=[{id:'test-project',parent:null,kind:'folder',name:'Test Project',content:'',created:'2026-10-13T12:00:00.000Z'},...Array.from({length:9},(_,index)=>({id:'test-item-'+index,parent:'test-project',kind:'item',name:'Test equipment '+(index+1),content:'',itemnumber:String(index+1),manufacturer:'Example manufacturer',model:'TEST-'+(index+1),quantity:1,stage:'Pending quote',created:'2026-10-13T12:00:00.000Z'})),{id:'test-status',parent:null,kind:'status',name:'Pending quote',content:'',color:'#bc6454',created:'2026-10-13T12:00:00.000Z'}];
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/stages'?stageAPI:transfer,Response,Request,FormData,File,crypto,URL});
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/stages'?stageAPI:n==='../lib/pricing'?pricingAPI:transfer,Response,Request,FormData,File,crypto,URL});
 const parent=transfer.find(r=>r.kind==='folder').id;const ids=transfer.filter(r=>r.kind==='item').slice(0,5).map(r=>r.id);
 async function post(v,origin='https://combined.test'){const body=new FormData();if(v.kind==='status'||v.action==='deleteStatus')v={stage_scope:parent,...v};for(const [k,value]of Object.entries(v))body.set(k,value instanceof File?value:String(value));const r=await API.pmPost(new Request('https://combined.test/api/pm/entries',{method:'POST',headers:{origin},body}),env);return {status:r.status,body:await r.json()};}
 test('migration imports source records once and preserves deletion',async()=>{await API.initializePM(env);assert.equal(database.prepare('SELECT count(*) AS n FROM entries').get().n,transfer.length);await API.initializePM(env);assert.equal(database.prepare('SELECT count(*) AS n FROM entries').get().n,transfer.length);});
@@ -252,4 +253,89 @@ test('AQ File text upserts per project separately from PDFs and notes and reject
  await post({action:'projectQuoteText',id:'aq-project-two',content:'Other project'});assert.equal((await post({action:'projectQuoteText',id:ids[0],content:'Wrong parent'})).status,400);
  assert.equal((await post({action:'projectQuoteText',id:'aq-project-one',content:'x'.repeat(20001)})).status,400);assert.equal(rows()[0].content,'Updated');
  await post({kind:'file',id:'aq-quote-pdf',parent:'aq-project-one',content:'project-document:quote',file:new File(['quote bytes'],'Quote.pdf')});await post({action:'projectQuoteText',id:'aq-project-one',content:''});assert.equal(rows()[0].content,'');assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get('aq-quote-pdf'));assert.equal(database.prepare("SELECT content FROM entries WHERE id='aq-file:aq-project-two'").get().content,'Other project');
+});
+
+test('bulk removal validates the complete selection and preserves shared file references',async()=>{
+ const parent='remove-project';await post({id:parent,kind:'folder',name:'Remove project'});for(const id of ['remove-a','remove-b'])await post({id,kind:'item',parent,name:id,itemnumber:'1'});
+ await post({action:'bulkDocument',ids:JSON.stringify(['remove-a','remove-b']),document_section:'drawings',file:new File(['keep shared'],'same.pdf')});const shared=database.prepare("SELECT * FROM entries WHERE name='same.pdf'").all();const a=shared.find(i=>i.parent==='remove-a'),b=shared.find(i=>i.parent==='remove-b');
+ await post({id:'remove-note',parent:'remove-a',kind:'note',name:'Note',content:'Remove this',date:'2026-10-16'});
+ assert.equal((await post({action:'bulkDeleteAttachments',parent:'remove-a',ids:JSON.stringify([a.id,'missing'])})).status,409);assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get(a.id));assert.ok(blobs.has(a.key));
+ assert.equal((await post({action:'bulkDeleteAttachments',parent:'remove-a',ids:JSON.stringify([a.id,a.id])})).status,400);
+ assert.equal((await post({action:'bulkDeleteAttachments',parent,ids:JSON.stringify(['remove-a'])})).status,409);
+ assert.equal((await post({action:'bulkDeleteAttachments',parent,item_ids:JSON.stringify(['remove-a']),ids:JSON.stringify([a.id,b.id])})).status,409);assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get(a.id));
+ assert.equal((await post({action:'bulkDeleteAttachments',parent:'remove-a',ids:JSON.stringify([a.id,'remove-note'])})).status,200);assert.equal(database.prepare('SELECT id FROM entries WHERE id=?').get(a.id),undefined);assert.ok(blobs.has(a.key));assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get('remove-a'));
+ assert.equal((await post({action:'bulkDeleteAttachments',parent,item_ids:JSON.stringify(['remove-a','remove-b']),ids:JSON.stringify([b.id])})).status,200);assert.equal(blobs.has(a.key),false);
+});
+test('shared drawings save the chosen review status for file uploads and links before any upload',async()=>{
+ const parent='drawing-bulk';await post({id:parent,kind:'folder',name:'Drawing status'});const selected=['drawing-a','drawing-b'];for(const id of selected)await post({id,kind:'item',parent,name:id,itemnumber:'1'});
+ for(const stage of ['unsigned','revisions_needed','approved'])for(const type of ['file','link']){const name=stage+'-'+type+'.pdf';const input=type==='file'?{file:new File(['drawing'],name)}:{name,url:'https://example.com/'+name};assert.equal((await post({action:'bulkDocument',ids:JSON.stringify(selected),document_section:'drawings',drawing_status:stage,...input})).status,200);const rows=database.prepare('SELECT * FROM entries WHERE name=?').all(name);assert.equal(rows.length,2);assert.ok(rows.every(r=>r.stage===stage&&r.content==='item-document:drawings'));}
+ const before=blobs.size;assert.equal((await post({action:'bulkDocument',ids:JSON.stringify(selected),document_section:'drawings',drawing_status:'bad',file:new File(['x'],'bad.pdf')})).status,400);assert.equal(blobs.size,before);
+});
+
+test('pricing preserves unit cost, markup, freight, change orders and absorbed costs with dated history',async()=>{
+ const id='priced-equipment';await post({id,kind:'item',parent,name:'Priced equipment',itemnumber:'PRICE',quantity:2});const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);const history=()=>database.prepare('SELECT * FROM entries WHERE parent=?').all(id);
+ const base={action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',unit_price_cents:'9999',freight_cost_cents:'50',freight_charge_cents:'75',pricing_mode:'markup',markup_percent:'3',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),reason:'Initial quote',treatment:'initial',request_id:'initial-pricing-001'};
+ assert.equal((await post(base)).status,200);assert.equal(current().unit_price_cents,103000);assert.equal(current().unit_cost_cents,100000);assert.equal(current().freight_cost_cents,5000);assert.equal(current().markup_percent,3);
+ assert.equal((await post(base)).status,200);assert.equal(history().length,1);
+ let totals=pricingAPI.itemPricing(current(),history());assert.equal(totals.total,213500);assert.equal(totals.cost,205000);assert.equal(totals.profit,8500);
+ const co={action:'pricing',id,type:'change_order',amount:'100',cost:'60',reference:'CO-01',reason:'Added work',request_id:'change-order-001'};assert.equal((await post(co)).status,200);assert.equal((await post(co)).status,200);assert.equal(history().length,2);
+ assert.equal((await post({action:'pricing',id,type:'absorbed',cost:'25',reason:'My mistake',request_id:'absorbed-cost-001'})).status,200);totals=pricingAPI.itemPricing(current(),history());assert.equal(totals.total,223500);assert.equal(totals.cost,213500);assert.equal(totals.profit,10000);assert.equal(totals.absorbed,2500);
+ assert.equal((await post({action:'pricing',id,type:'change_order',amount:'-20',cost:'-10',reason:'Credit',request_id:'credit-order-001'})).status,200);totals=pricingAPI.itemPricing(current(),history());assert.equal(totals.total,221500);assert.equal(totals.cost,212500);
+ const stale={...base,request_id:'stale-update-001'};assert.equal((await post({...stale,expected:JSON.stringify({...pricingAPI.pricingSnapshot(current()),unit_price_cents:1})})).status,409);
+ assert.equal((await post({...base,treatment:'absorbed',unit_price_cents:'1100',pricing_mode:'manual',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),request_id:'bad-absorb-001'})).status,400);
+ assert.equal((await post({...base,unit_cost_cents:'10.999',request_id:'invalid-price-001',expected:JSON.stringify(pricingAPI.pricingSnapshot(current()))})).status,400);
+ const before=current().unit_price_cents;await post({action:'edit',id,name:'Renamed',itemnumber:'PRICE',quantity:3});assert.equal(current().unit_price_cents,before);assert.equal(current().unit_cost_cents,100000);assert.equal(history().length,4);
+});
+test('one apply combines metadata and notes while preserving untouched fields',async()=>{
+ const selected=ids.slice(0,2),before=database.prepare('SELECT * FROM entries WHERE id=?').get(selected[0]);
+ const result=await post({action:'bulkUpdate',ids:JSON.stringify(selected),quote_number:'Q-unified',shipping_destination:'installer',expected_receiving_date:'2026-11-12',content:'Combined update',date:'2026-10-17'});
+ assert.equal(result.status,200,JSON.stringify(result.body));
+ for(const id of selected){const row=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(row.quote_number,'Q-unified');assert.equal(row.shipping_destination,'installer');assert.equal(row.expected_receiving_date,'2026-11-12');assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent=? AND kind='note' AND content='Combined update'").get(id).n,1);}
+ const after=database.prepare('SELECT * FROM entries WHERE id=?').get(selected[0]);assert.equal(after.stage,before.stage);assert.equal(after.po_number,before.po_number);assert.equal(after.shop_drawings,before.shop_drawings);
+ assert.equal((await post({action:'bulkUpdate',ids:JSON.stringify(selected),quote_number:''})).status,200);assert.equal(database.prepare('SELECT quote_number FROM entries WHERE id=?').get(selected[0]).quote_number,null);
+});
+test('combined update validates before writing and rejects empty changes',async()=>{
+ const before=database.prepare('SELECT * FROM entries WHERE id=?').get(ids[0]);
+ for(const changes of [{},{po_number:'should not save',content:'Invalid date',date:'2026-02-30'},{po_number:'should not save',stage:'missing stage'},{po_number:'should not save',shipping_destination:'invalid'}])assert.equal((await post({action:'bulkUpdate',ids:JSON.stringify([ids[0]]),...changes})).status,400);
+ assert.deepEqual(database.prepare('SELECT * FROM entries WHERE id=?').get(ids[0]),before);
+});
+test('zero markup and pricing changes save without a reason',async()=>{
+ const id='zero-markup-no-reason';assert.equal((await post({id,parent,kind:'item',name:'Zero markup test',itemnumber:'ZERO',quantity:2})).status,200);
+ const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ const fields={action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',unit_price_cents:'',freight_cost_cents:'25',freight_charge_cents:'',pricing_mode:'markup',markup_percent:'0'};
+ assert.equal((await post({...fields,expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),treatment:'initial',request_id:'zero-markup-initial'})).status,200);
+ assert.equal(current().unit_price_cents,100000);assert.equal(current().markup_percent,0);
+ assert.equal((await post({...fields,unit_cost_cents:'1100',recalculate_sell:'yes',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),treatment:'change_order',request_id:'zero-markup-update'})).status,200);assert.equal(current().unit_price_cents,110000);
+ assert.equal((await post({action:'pricing',id,type:'absorbed',cost:'10',request_id:'no-reason-absorbed'})).status,200);
+});
+test('post award net preserves pre award and sell net, updates profit and supports zero',async()=>{
+ const id='post-award-net-test';await post({id,parent,kind:'item',name:'Net test',itemnumber:'POST',quantity:2});
+ const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ async function pricing(values){return post({action:'pricing',type:'pricing_update',id,unit_cost_cents:'1000',unit_price_cents:'1030',post_award_cost_cents:'',freight_cost_cents:'20',freight_charge_cents:'',pricing_mode:'markup',markup_percent:'3',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),request_id:crypto.randomUUID(),...values});}
+ assert.equal((await pricing({})).status,200);assert.equal(current().unit_price_cents,103000);
+ assert.equal((await pricing({post_award_cost_cents:'950'})).status,200);
+ assert.equal(current().unit_cost_cents,100000);assert.equal(current().post_award_cost_cents,95000);assert.equal(current().unit_price_cents,103000);
+ let totals=pricingAPI.itemPricing(current(),[]);assert.equal(totals.cost,192000);assert.equal(totals.total,206000);assert.equal(totals.profit,14000);
+ assert.equal((await pricing({unit_cost_cents:'980',post_award_cost_cents:'950'})).status,200);assert.equal(current().unit_price_cents,103000);
+ assert.equal((await pricing({post_award_cost_cents:'0'})).status,200);assert.equal(pricingAPI.itemPricing(current(),[]).cost,2000);
+ assert.equal((await pricing({post_award_cost_cents:''})).status,200);assert.equal(pricingAPI.itemPricing(current(),[]).cost,202000);
+ const before=current();assert.equal((await pricing({post_award_cost_cents:'-1'})).status,400);assert.deepEqual(current(),before);
+});
+test('landed markup saves exact line sell net and installation with costs kept separate',async()=>{
+ const id='landed-markup-test';await post({id,parent,kind:'item',name:'Installed equipment',itemnumber:'LAND',quantity:2});
+ const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ const values={action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',unit_price_cents:'',freight_cost_cents:'100',freight_charge_cents:'',install_cost_cents:'200',quoted_total_cents:'',pricing_mode:'markup',markup_percent:'10',landed_markup:'yes'};
+ assert.equal((await post({...values,expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'yes',request_id:'landed-markup-first'})).status,200);
+ assert.equal(current().quoted_total_cents,253000);assert.equal(current().install_cost_cents,20000);assert.equal(pricingAPI.itemPricing(current(),[]).profit,23000);
+ assert.equal((await post({...values,post_award_cost_cents:'950',unit_price_cents:'1100',quoted_total_cents:'2530',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'no',request_id:'landed-markup-later'})).status,200);
+ assert.equal(current().quoted_total_cents,253000);assert.equal(pricingAPI.itemPricing(current(),[]).profit,33000);
+ assert.equal((await post({...values,post_award_cost_cents:'950',markup_percent:'0',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'yes',request_id:'landed-zero-markup'})).status,200);assert.equal(current().quoted_total_cents,220000);
+});
+test('freight and install added after markup automatically recalculate exact sell net',async()=>{
+ const id='pricing-entry-order-test';await post({id,parent,kind:'item',name:'Order test',itemnumber:'ORDER',quantity:4});const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ async function update(values){return post({action:'pricing',id,type:'pricing_update',unit_cost_cents:'16235',unit_price_cents:'16722.05',freight_cost_cents:'',freight_charge_cents:'',install_cost_cents:'',quoted_total_cents:'',pricing_mode:'markup',markup_percent:'3',landed_markup:'yes',recalculate_sell:'no',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),request_id:crypto.randomUUID(),...values});}
+ assert.equal((await update({})).status,200);assert.equal(current().quoted_total_cents,6688820);
+ assert.equal((await update({quoted_total_cents:'66888.20',freight_cost_cents:'100'})).status,200);assert.equal(current().quoted_total_cents,6699120);
+ assert.equal((await update({quoted_total_cents:'66991.20',freight_cost_cents:'100',install_cost_cents:'500'})).status,200);assert.equal(current().quoted_total_cents,6750620);
+ assert.equal((await update({quoted_total_cents:'67506.20',freight_cost_cents:'100',install_cost_cents:'500',post_award_cost_cents:'15000'})).status,200);assert.equal(current().quoted_total_cents,6750620);
 });
