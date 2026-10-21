@@ -1,0 +1,5 @@
+export type ScheduleRow={itemnumber:string,quantity:number|null,name:string,manufacturer:string,model:string,details:string,warning:string};
+export function validateSchedule(rows:any){
+ if(!Array.isArray(rows)||!rows.length||rows.length>500)throw Error('Review between 1 and 500 schedule items.');
+ return rows.map((r:any,index:number)=>{if(!r||typeof r!=='object')throw Error('Invalid schedule row.');const result:any={};for(const [field,limit] of Object.entries({itemnumber:50,name:300,manufacturer:200,model:200,details:20000,warning:2000})){if(typeof r[field]!=='string'||r[field].length>limit)throw Error('Row '+(index+1)+': check '+field+'.');result[field]=r[field];}if(!r.itemnumber.trim()||!r.name.trim())throw Error('Row '+(index+1)+': item number and category are required.');if(r.quantity!==null&&(typeof r.quantity!=='number'||!Number.isFinite(r.quantity)||r.quantity<0))throw Error('Row '+(index+1)+': check quantity.');if(/\bspare\s+(?:item\s+)?number\b/i.test(r.name))throw Error('Remove spare-number rows before importing.');return {...result,quantity:r.quantity} as ScheduleRow;});
+}

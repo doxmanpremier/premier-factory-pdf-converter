@@ -99,6 +99,13 @@
       "when": 1792213467489,
       "tag": "0013_install_and_sell_total",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792245172018,
+      "tag": "0014_install_percentage",
+      "breakpoints": true
     }
   ]
 }

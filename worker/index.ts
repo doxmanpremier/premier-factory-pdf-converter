@@ -1,3 +1,4 @@
+import {gmailAPI,gmailConnection,removeEmail} from './gmail-api';
 import {pmAssetVersion} from './pm-assets';
 import {pmGet,pmPost,pmFile,initializePM} from './pm-api';
 /** Cloudflare Worker entry point for the vinext-starter template. */
@@ -318,11 +319,14 @@ const worker = {
     if (url.pathname === "/login") return handleLogin(request, env);
     if (url.pathname === "/logout" && request.method === "POST") return handleLogout();
 
+    if (url.pathname.startsWith('/api/pm/gmail/')) return gmailAPI(request,env);
     if (!(await isAuthenticated(request, env))) {
       if (url.pathname.startsWith("/api/")) return Response.json({ error: "Please sign in again." }, { status: 401 });
       return Response.redirect(new URL("/login", request.url), 303);
     }
 
+    if(url.pathname==='/api/pm/gmail-connection')return gmailConnection(request,env);
+    if(url.pathname==='/api/pm/email')return removeEmail(request,env);
     if(url.pathname==='/api/pm/entries'){
       await initializePM(env);
       if(request.method==='GET')return pmGet(request,env);

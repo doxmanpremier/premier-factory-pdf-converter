@@ -1,0 +1,8 @@
+'use client';
+import {projectInsights} from '../lib/project-insights';
+import {dollars} from '../lib/pricing';
+export default function ProjectOverview({entries,parent,onQueue,compact=false}:any){
+ const summary=projectInsights(entries,parent,new Date().toLocaleDateString('en-CA'),!compact);
+ if(compact)return <div className="project-progress"><span>{summary.installed}/{summary.items} installed</span><span>{summary.openTasks} open tasks{summary.overdueTasks?` · ${summary.overdueTasks} overdue`:''}</span><span>{summary.missingPricing} missing pricing</span>{summary.nextDelivery&&<span>Next delivery {summary.nextDelivery}</span>}<span>Last recorded activity {summary.lastActivity?new Date(summary.lastActivity).toLocaleDateString():'—'}</span></div>;
+ return <section className="project-overview" aria-label="Project summary"><div className="summary-stat"><span>Sell net</span><strong>{summary.totals.priced?dollars(summary.totals.sell):'Not entered'}</strong><small>{summary.totals.priced}/{summary.items} items priced</small></div><div className="summary-stat"><span>Projected profit</span><strong>{summary.totals.profit===null?'Not available':dollars(summary.totals.profit)}</strong><small>{summary.totals.profitItems}/{summary.items} items with cost and sell</small></div>{[['missingPricing','Missing pricing',summary.missingPricing],['overdue','Overdue items',summary.overdueItems],['awaitingDrawings','Drawings awaiting approval',summary.awaitingDrawings]].map(([queue,label,count])=><button key={String(queue)} className="summary-stat" onClick={()=>onQueue(queue)}><span>{label}</span><strong>{count}</strong><small>View matching equipment</small></button>)}</section>;
+}

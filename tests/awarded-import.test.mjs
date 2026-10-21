@@ -1,0 +1,15 @@
+import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import test from 'node:test';import assert from 'node:assert/strict';
+const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/awarded-import.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:api});
+const headers=['ItemNo','Mfr','Model','Qty','Category','Spec','Net','Sell','SellTotal','Net Freight','Net Install','Spreadsheet Notes'];
+test('awarded export groups priced and free accessories, preserves identifiers and full details',()=>{
+ const result=api.parseAwardedRows([headers,['23/24','Maker','R-10',1,'Range with ten burners and two full sized ovens','Full range specification',1000.125,1100.125,1100.13,10,20,'Deliver together'],['','Maker','BROIL',1,'','Broiler',250.125,270.125,270.13,5,0],['','','',1,'','Mount kit',30.126,40.126,40.13],['','','',1,'','Gas option',0,0,0],['28','Maker','FRY',2,'Fryer','Fryer spec',100.125,120.125,240.26],['','Maker','CASTER',2,'','Casters',10.125,15.125,30.26]]);
+ assert.deepEqual(Array.from(result.errors),[]);assert.equal(result.rows.length,2);const item=result.rows[0];assert.equal(item.itemnumber,'23/24');assert.equal(item.accessory_count,3);assert.equal(item.pricing.unit_cost_cents,'1280.39');assert.equal(item.pricing.quoted_total_cents,'1410.39');assert.equal(item.pricing.freight_cost_cents,'15.00');assert.equal(item.pricing.install_cost_cents,'20.00');assert.equal(item.name,'Range with ten burners and');assert.match(item.import_details,/Broiler/);assert.match(item.import_details,/BROIL/);assert.match(item.import_details,/Gas option/);assert.match(item.import_details,/Deliver together/);
+ assert.equal(result.rows[1].pricing.unit_cost_cents,'110.26');assert.equal(result.rows[1].pricing.quoted_total_cents,'270.52');assert.equal(result.rows[1].quantity,2);
+});
+test('awarded parser accepts reordered headers and Sell fallback, preserves blanks versus zero',()=>{
+ const result=api.parseAwardedRows([['Category','Qty','Mfr','Model','ItemNo','Sell','Net','Spec'],['Counter',2,'Maker','CUSTOM','001',10,0,'Full'],['',2,'','','',1,0,'Option']]);assert.equal(result.errors.length,0);assert.equal(result.rows[0].pricing.quoted_total_cents,'22.00');assert.equal(result.rows[0].pricing.unit_cost_cents,'0.00');assert.equal(result.rows[0].pricing.freight_cost_cents,undefined);assert.equal(result.rows[0].itemnumber,'001');
+});
+test('orphan accessories, ambiguous totals, invalid values and oversized details block awarded imports',()=>{
+ for(const grid of [[headers,['','','',1,'','Orphan',1]], [headers,['1','M','X',1,'Counter','Main',1],['','','',1,'','',5]], [headers,['1','M','X',0,'Counter','Main',1]], [headers,['1','M','X',1,'Counter','Main',-1]], [headers,['1','M','X',1,'Counter','x'.repeat(20001),1]], [headers,['1','M','X',1,'Counter','Main',1],['','','','','','Option',1]]])assert.ok(api.parseAwardedRows(grid).errors.length);
+ assert.equal(api.isAwardedSpreadsheet([['Item number','Quantity','Category / Description','Manufacturer','Model number']]),false);
+});

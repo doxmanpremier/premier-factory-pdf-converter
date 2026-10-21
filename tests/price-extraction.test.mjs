@@ -396,3 +396,37 @@ test("CSV export keeps wrapped specifications on one physical import row", () =>
     assert.equal(reopened.manufacturer,rows[i].manufacturer);
   }
 });
+
+
+test("LTI retains comma-separated combined items once with their price and specification", () => {
+  for (const item of ["407,407.1", "407, 407.1"]) {
+    const rows=context.extractLtiRows([
+      "406 1 Ice Cream Counter $6,359.00 $6,359.00",
+      "Approx 48 inches wide",
+      `${item} 1 Serving Counter $8,624.00 $8,624.00`,
+      "Approx 108 inches wide",
+      "14 Ga. Stainless Steel Top",
+      "407.2 1 DI-QSP454-DW-20-01-H $7,874.00 $7,874.00",
+      "Quick Switch with one pan",
+      "Total $22,857.00",
+    ],{quoteNumber:"59881",revision:""});
+    assert.deepEqual(plain(rows.map(({item,qty,category,price})=>({item,qty,category,price}))),[
+      {item:"406",qty:"1",category:"Ice Cream Counter",price:"6359.00"},
+      {item:"407,407.1",qty:"1",category:"Serving Counter",price:"8624.00"},
+      {item:"407.2",qty:"1",category:"DI-QSP454-DW-20-01-H",price:"7874.00"},
+    ]);
+    assert.equal(rows[0].spec,"Approx 48 inches wide");
+    assert.equal(rows[1].spec,"Approx 108 inches wide 14 Ga. Stainless Steel Top");
+    assert.equal(rows[1].model,"Q#59881 Item 407,407.1");
+    assert.equal(context.buildExportRow(rows[1])[1],"407,407.1");
+    assert.equal(rows.reduce((sum,row)=>sum+Number(row.price)*Number(row.qty),0),22857);
+  }
+});
+
+
+test("LTI joins combined numbers wrapped above and below the quantity", () => {
+ const pages=[[pdfItem(62,333,"407,"),pdfItem(62,321,"407.1"),pdfItem(115,327,"1"),pdfItem(145,327,"Serving Counter"),pdfItem(445,327,"$8,624.00"),pdfItem(520,327,"$8,624.00"),pdfItem(145,300,"108 inch counter",10,"F-regular"),pdfItem(62,116,"407.2"),pdfItem(115,116,"1"),pdfItem(145,116,"Quick Switch"),pdfItem(445,116,"$7,874.00"),pdfItem(520,116,"$7,874.00")]];
+ const rows=context.extractLtiRows(pages.flatMap(context.itemsToLines),{quoteNumber:"59881"},pages);
+ assert.deepEqual(plain(rows.map(r=>[r.item,r.qty,r.category,r.price])),[["407,407.1","1","Serving Counter","8624.00"],["407.2","1","Quick Switch","7874.00"]]);
+ assert.equal(rows[0].spec,"108 inch counter");
+});

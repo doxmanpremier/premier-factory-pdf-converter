@@ -1,6 +1,7 @@
 
-import {moneyCents,pricingSnapshot,pricingFields,markedUpCents,landedSell,markupNeedsRecalculation} from '../lib/pricing';
+import {moneyCents,pricingSnapshot,pricingFields,markedUpCents,landedSell,markupNeedsRecalculation,installationCost,discountedPostAward} from '../lib/pricing';
 import transfer from './pm-transfer.json';
+import {validateSchedule} from '../lib/schedule';
 import {defaultStatuses,statusesFor} from '../lib/stages';
 type PMEnv={DB:D1Database;BUCKET:R2Bucket};
 export async function initializePM(env:PMEnv){
@@ -23,7 +24,7 @@ export async function pmPost(req:Request,env:PMEnv){
  const form=await req.formData();const action=String(form.get('action')||'create');const id=String(form.get('id')||crypto.randomUUID());
  const existing=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();
  let scope=String(existing?.kind==='status'?existing.stage_scope||'':form.get('stage_scope')||'')||null;
- if(scope&&!['quoting','awarded'].includes(scope)){const job=await env.DB.prepare("SELECT job_category FROM entries WHERE id=? AND owner=? AND kind='folder' AND parent IS NULL").bind(scope,owner).first<any>();if(!job)return out({error:'Job not found.'},404);scope=job.job_category||'quoting';}
+ if(scope&&!['quoting','awarded','completed'].includes(scope)){const job=await env.DB.prepare("SELECT job_category FROM entries WHERE id=? AND owner=? AND kind='folder' AND parent IS NULL").bind(scope,owner).first<any>();if(!job)return out({error:'Job not found.'},404);scope=job.job_category||'quoting';}
  if((['deleteStatus','reorderStatuses'].includes(action)||existing?.kind==='status'||form.get('kind')==='status')&&!scope)return out({error:'Open a job to change its stages.'},400);
 
  const scopeSQL=scope?" AND id IN (WITH RECURSIVE job(id) AS (SELECT id FROM entries WHERE kind='folder' AND parent IS NULL AND COALESCE(job_category,'quoting')=? AND owner=? UNION ALL SELECT e.id FROM entries e JOIN job j ON e.parent=j.id WHERE e.owner=?) SELECT id FROM job)":"";
@@ -32,12 +33,20 @@ export async function pmPost(req:Request,env:PMEnv){
  async function cleanRemovedFiles(){for(const key of removedFileKeys){try{if(!await env.DB.prepare('SELECT id FROM entries WHERE key=? LIMIT 1').bind(key).first())await env.BUCKET.delete(key);}catch{ /* Keep storage if cleanup is temporarily unavailable. */ }}}
  async function categoryItemChanges(category:string){
   if(!existing||existing.kind!=='folder'||existing.parent||category===(existing.job_category||'quoting'))return [];
-  const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND kind IN ('status','status_removed') AND stage_scope IN ('quoting','awarded')").bind(owner).all<any>();
+  const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND kind IN ('status','status_removed') AND stage_scope IN ('quoting','awarded','completed')").bind(owner).all<any>();
   const previous=statusesFor(rows.results,existing.job_category||'quoting'),next=statusesFor(rows.results,category);const statements:any[]=[];
-  let awarded=category==='awarded'?next.find(s=>(s.content||s.name)==='Awarded')||next.find(s=>s.name==='Awarded'):null;
-  if(category==='awarded'&&!awarded){awarded=defaultStatuses.find(s=>s.name==='Awarded')!;statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,color,created,stage_scope) VALUES (?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status','Awarded','Awarded',awarded.color,new Date().toISOString(),'awarded'));}
+  const becomingAwarded=category==='awarded'&&(existing.job_category||'quoting')==='quoting';
+  let awarded=becomingAwarded?next.find(s=>(s.content||s.name)==='Awarded')||next.find(s=>s.name==='Awarded'):null;
+  if(becomingAwarded&&!awarded){awarded=defaultStatuses.find(s=>s.name==='Awarded')!;statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,color,created,stage_scope) VALUES (?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status','Awarded','Awarded',awarded.color,new Date().toISOString(),'awarded'));}
   const children=await env.DB.prepare("WITH RECURSIVE job(id) AS (SELECT id FROM entries WHERE id=? AND owner=? UNION ALL SELECT e.id FROM entries e JOIN job j ON e.parent=j.id WHERE e.owner=?) SELECT * FROM entries WHERE kind='item' AND id IN (SELECT id FROM job) AND owner=?").bind(id,owner,owner,owner).all<any>();
+  const copied=new Set<string>();
   for(const item of children.results){const original=previous.find(s=>s.name===item.stage);
+   if(category==='completed'){
+    if(item.stage&&!next.some(s=>s.name===item.stage)&&!copied.has(item.stage)){
+     copied.add(item.stage);statements.push(env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,color,created,stage_scope) VALUES (?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status',item.stage,item.stage,original?.color||'#737d89',new Date().toISOString(),'completed'));
+    }
+    continue;
+   }
    const notCarried=(name:string)=>String(name||'').replace(/^\s*\d+\s*[).:\-]*\s*/,'').trim().toLowerCase().replace(/[\s_-]+/g,' ')==='not carried';
    if(category==='awarded'&&(existing.job_category||'quoting')==='quoting'&&(notCarried(item.stage)||notCarried(original?.content||''))){
     const tree="WITH RECURSIVE removed(id) AS (SELECT id FROM entries WHERE id=? AND owner=? UNION SELECT e.id FROM entries e JOIN removed r ON e.parent=r.id WHERE e.owner=?)";
@@ -46,6 +55,18 @@ export async function pmPost(req:Request,env:PMEnv){
    }
    const mapped=awarded||next.find(s=>s.name===item.stage)||next.find(s=>(s.content||s.name)===(original?.content||original?.name||item.stage))||next[0];statements.push(env.DB.prepare('UPDATE entries SET stage=? WHERE id=? AND owner=?').bind(mapped.name,item.id,owner));}return statements;
  }
+ if(action==='importSchedule'){
+  const parent=String(form.get('parent')||'');let root=await env.DB.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND kind='folder'").bind(parent,owner).first<any>();let depth=0;
+  while(root?.parent&&depth++<100)root=await env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(root.parent,owner).first<any>();
+  if(!root||root.parent||(root.job_category||'quoting')!=='quoting')return out({error:'Open a Quoting Job to import a schedule screenshot.'},400);
+  let rows:any[];try{rows=validateSchedule(JSON.parse(String(form.get('rows')||'[]')));}catch(e:any){return out({error:e.message||'Review the schedule rows.'},400);}
+  const ids=JSON.parse(String(form.get('ids')||'[]'));if(!Array.isArray(ids)||ids.length!==rows.length||new Set(ids).size!==ids.length||ids.some(i=>typeof i!=='string'||!/^[-a-zA-Z0-9]{10,100}$/.test(i)))return out({error:'Invalid import identifiers.'},400);
+  const found=await Promise.all(ids.map(i=>env.DB.prepare('SELECT id,parent,owner,kind FROM entries WHERE id=?').bind(i).first<any>()));if(found.some(i=>i&&(i.owner!==owner||i.parent!==parent||i.kind!=='item')))return out({error:'Import identifiers conflict with existing items.'},409);if(found.every(Boolean))return out({ok:true,count:rows.length});if(found.some(Boolean))return out({error:'Part of this import already exists. Refresh and review your items.'},409);
+  const stageRows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND stage_scope='quoting' AND kind IN ('status','status_removed')").bind(owner).all<any>(),stage=statusesFor(stageRows.results,'quoting')[0].name;
+  const rank=Number((await env.DB.prepare("SELECT MAX(order_position) rank FROM entries WHERE parent=? AND owner=? AND kind='item'").bind(parent,owner).first<any>())?.rank??-1)+1,statements:any[]=[];
+  rows.forEach((row,index)=>{const created=new Date().toISOString();statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,itemnumber,quantity,manufacturer,model,stage,created,order_position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').bind(ids[index],owner,parent,'item',row.name,row.itemnumber,row.quantity,row.manufacturer||null,row.model||null,stage,created,rank+index));if(row.details.trim())statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,date,created) VALUES (?,?,?,?,?,?,?,?)').bind('awarded-import-details:'+ids[index],owner,ids[index],'note','Imported specification & accessories',row.details,created.slice(0,10),created));});
+  await env.DB.batch(statements);return out({ok:true,count:rows.length});
+ }
  if(action==='reorderStatuses'){
   const names=JSON.parse(String(form.get('names')||'[]'));if(!scope||!Array.isArray(names)||!names.length||names.length>500||names.some(n=>typeof n!=='string')||new Set(names).size!==names.length)return out({error:'Invalid stage order.'},400);
   const rows=await env.DB.prepare("SELECT * FROM entries WHERE owner=? AND stage_scope=? AND kind IN ('status','status_removed')").bind(owner,scope).all<any>();const active=statusesFor(rows.results,scope);
@@ -53,13 +74,21 @@ export async function pmPost(req:Request,env:PMEnv){
   const statements=names.map((name,index)=>{const stage=active.find(s=>s.name===name)!;const stored=rows.results.find(s=>s.kind==='status'&&s.name===name);return stored?env.DB.prepare('UPDATE entries SET order_position=? WHERE id=? AND owner=?').bind(index,stored.id,owner):env.DB.prepare("INSERT INTO entries (id,owner,kind,name,content,color,created,stage_scope,order_position) VALUES (?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),owner,'status',name,stage.content||name,stage.color,new Date().toISOString(),scope,index);});
   await env.DB.batch(statements);return out({ok:true});
  }
+ if(action==='awardedImportDetails'){
+  if(!existing||existing.kind!=='item')return out({error:'Item not found.'},404);
+  let root=await env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(existing.parent,owner).first<any>();let depth=0;
+  while(root?.parent&&depth++<100)root=await env.DB.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(root.parent,owner).first<any>();
+  if(!root||root.parent||root.kind!=='folder')return out({error:'Open a project to import specifications.'},400);
+  const content=String(form.get('content')||'').replace(/\r\n?/g,'\n').trim();if(!content||content.length>20000)return out({error:'Imported specifications must contain 1 to 20,000 characters.'},400);
+  await env.DB.prepare("INSERT INTO entries (id,owner,parent,kind,name,content,date,created) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content WHERE entries.owner=? AND entries.parent=? AND entries.kind='note'").bind('awarded-import-details:'+id,owner,id,'note','Imported specification & accessories',content,new Date().toISOString().slice(0,10),new Date().toISOString(),owner,id).run();return out({ok:true});
+ }
  if(action==='projectQuoteText'){
   if(!existing||existing.kind!=='folder'||existing.parent)return out({error:'Open a project to save AQ File text.'},400);
   const content=String(form.get('content')||'').replace(/\r\n?/g,'\n');if(content.length>20000)return out({error:'AQ File text can be up to 20,000 characters.'},400);
   await env.DB.prepare("INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content WHERE entries.owner=? AND entries.parent=? AND entries.kind='project_text'").bind('aq-file:'+id,owner,id,'project_text','AQ File',content,new Date().toISOString(),owner,id).run();return out({ok:true});
  }
  if(action==='jobCategory'){
-  const category=String(form.get('job_category')||'');if(!existing||existing.kind!=='folder'||existing.parent||!['quoting','awarded'].includes(category))return out({error:'Choose a valid job section.'},400);
+  const category=String(form.get('job_category')||'');if(!existing||existing.kind!=='folder'||existing.parent||!['quoting','awarded','completed'].includes(category))return out({error:'Choose a valid job section.'},400);
   await env.DB.batch([env.DB.prepare('UPDATE entries SET job_category=? WHERE id=? AND owner=?').bind(category,id,owner),...await categoryItemChanges(category)]);await cleanRemovedFiles();return out({ok:true});
  }
  if(action==='deleteStatus'){
@@ -194,9 +223,13 @@ export async function pmPost(req:Request,env:PMEnv){
   try{if(type==='pricing_update'){
    const expected=JSON.parse(String(form.get('expected')||'null'));if(JSON.stringify(expected)!==JSON.stringify(before))return out({error:'Pricing changed. Refresh before saving.'},409);
    const after:any={};for(const field of pricingFields)after[field]=form.has(field)?moneyCents(String(form.get(field)||'')):before[field];
+   if(form.has('post_award_discount'))after.post_award_cost_cents=discountedPostAward(after.unit_cost_cents,String(form.get('post_award_discount')||''));
+   after.install_mode=String(form.get('install_mode')||before.install_mode||'manual');if(!['manual','percent'].includes(after.install_mode))throw Error();after.install_percent=after.install_mode==='percent'?(form.has('install_percent')?Number(form.get('install_percent')):before.install_percent):null;
+   if(after.install_mode==='percent'){if(after.install_percent===null||form.has('install_percent')&&!String(form.get('install_percent')).trim())throw Error();after.install_cost_cents=installationCost({...after,quantity:existing.quantity},after.install_percent);}
    after.pricing_mode=String(form.get('pricing_mode')||'manual');if(!['manual','markup'].includes(after.pricing_mode))throw Error();after.markup_percent=after.pricing_mode==='markup'?Number(form.get('markup_percent')):null;if(after.pricing_mode==='markup'){if(after.unit_cost_cents===null||!String(form.get('markup_percent')||'').trim())throw Error();after.unit_price_cents=before.unit_price_cents!==null&&form.get('recalculate_sell')!=='yes'&&before.pricing_mode==='markup'&&before.markup_percent===after.markup_percent?before.unit_price_cents:markedUpCents(after.unit_cost_cents,after.markup_percent);}
 
-   if(form.get('landed_markup')==='yes'&&after.pricing_mode==='markup'&&markupNeedsRecalculation(before,after,form.get('recalculate_sell')==='yes'))after.quoted_total_cents=landedSell({...after,quantity:existing.quantity},after.markup_percent);
+   if(form.get('preserve_import_sell')==='yes'&&(!form.has('quoted_total_cents')||after.quoted_total_cents===null))throw Error();
+   if(form.get('preserve_import_sell')!=='yes'&&form.get('landed_markup')==='yes'&&after.pricing_mode==='markup'&&markupNeedsRecalculation(before,after,form.get('recalculate_sell')==='yes'))after.quoted_total_cents=landedSell({...after,quantity:existing.quantity},after.markup_percent);
    const treatment=String(form.get('treatment')||'')||'update';
    if(treatment==='initial'&&pricingFields.some(f=>before[f]!==null))return out({error:'Pricing already exists. Refresh before saving.'},400);
    if(!['initial','update','change_order','absorbed'].includes(treatment))return out({error:'Invalid pricing update.'},400);
@@ -206,11 +239,50 @@ export async function pmPost(req:Request,env:PMEnv){
   }catch{return out({error:'Enter valid amounts with at most two decimal places.'},400);}
   const content=JSON.stringify(event),created=new Date().toISOString();
   if(type==='pricing_update'){
-   const where="id=? AND owner=? AND unit_price_cents IS ? AND unit_cost_cents IS ? AND freight_cost_cents IS ? AND freight_charge_cents IS ? AND post_award_cost_cents IS ? AND install_cost_cents IS ? AND quoted_total_cents IS ? AND COALESCE(pricing_mode,'manual')=? AND markup_percent IS ?";const args=[id,owner,...pricingFields.map(f=>before[f]),before.pricing_mode,before.markup_percent];
-   const results=await env.DB.batch([env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) SELECT ?,?,?,?,?,?,? FROM entries WHERE '+where).bind(eventID,owner,id,'price_event','Pricing update',content,created,...args),env.DB.prepare('UPDATE entries SET unit_price_cents=?,unit_cost_cents=?,freight_cost_cents=?,freight_charge_cents=?,post_award_cost_cents=?,install_cost_cents=?,quoted_total_cents=?,pricing_mode=?,markup_percent=? WHERE '+where).bind(...pricingFields.map(f=>event.after[f]),event.after.pricing_mode,event.after.markup_percent,...args)]);
+   const where="id=? AND owner=? AND unit_price_cents IS ? AND unit_cost_cents IS ? AND freight_cost_cents IS ? AND freight_charge_cents IS ? AND post_award_cost_cents IS ? AND install_cost_cents IS ? AND quoted_total_cents IS ? AND COALESCE(pricing_mode,'manual')=? AND markup_percent IS ? AND COALESCE(install_mode,'manual')=? AND install_percent IS ?";const args=[id,owner,...pricingFields.map(f=>before[f]),before.pricing_mode,before.markup_percent,before.install_mode,before.install_percent];
+   const results=await env.DB.batch([env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) SELECT ?,?,?,?,?,?,? FROM entries WHERE '+where).bind(eventID,owner,id,'price_event','Pricing update',content,created,...args),env.DB.prepare('UPDATE entries SET unit_price_cents=?,unit_cost_cents=?,freight_cost_cents=?,freight_charge_cents=?,post_award_cost_cents=?,install_cost_cents=?,quoted_total_cents=?,pricing_mode=?,markup_percent=?,install_mode=?,install_percent=? WHERE '+where).bind(...pricingFields.map(f=>event.after[f]),event.after.pricing_mode,event.after.markup_percent,event.after.install_mode,event.after.install_percent,...args)]);
    const changes=(results[1] as any).meta?.changes??(results[1] as any).changes;if(changes===0)return out({error:'Pricing changed. Refresh before saving.'},409);
   }else await env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES (?,?,?,?,?,?,?)').bind(eventID,owner,id,'price_event',type==='absorbed'?"Absorbed cost":"Change order",content,created).run();
   return out({ok:true});
+ }
+ if(action==='bulkPricing'){
+  const parent=String(form.get('parent')||''),ids=JSON.parse(String(form.get('ids')||'[]'));
+  if(!parent||!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(i=>typeof i!=='string')||new Set(ids).size!==ids.length)return out({error:'Select between 1 and 500 different item lines.'},400);
+  const targets=await Promise.all(ids.map(i=>env.DB.prepare("SELECT * FROM entries WHERE id=? AND owner=? AND parent=? AND kind='item'").bind(i,owner,parent).first<any>()));
+  if(targets.some(i=>!i))return out({error:'The selected items changed. Refresh and review your selection.'},409);
+  const expected=JSON.parse(String(form.get('expected')||'null'));
+  if(!expected||targets.some(i=>JSON.stringify(expected[i.id])!==JSON.stringify({...pricingSnapshot(i),quantity:i.quantity})))return out({error:'Pricing or quantities changed. Refresh before saving.'},409);
+  const install=String(form.get('install_mode')||''),hasFreight=form.has('freight'),hasMarkup=form.has('markup'),hasDiscount=form.has('post_award_discount');
+  if(!['','manual','percent'].includes(install)||(!install&&!hasFreight&&!hasMarkup&&!hasDiscount))return out({error:'Choose post-award discount, installation, freight or markup to apply.'},400);
+  const statements:any[]=[];
+  try{
+   const freight=hasFreight?moneyCents(String(form.get('freight')||'')):null,flat=install==='manual'?moneyCents(String(form.get('install')||'')):null;
+   const percent=(field:string)=>{const raw=String(form.get(field)||'').trim(),value=Number(raw);if(!raw||!Number.isFinite(value)||value<0||value>100000)throw Error('Enter a valid percentage.');return value;};
+   const installPercent=install==='percent'?percent('install'):null,markup=hasMarkup?percent('markup'):null;
+   if(hasFreight&&freight===null||install==='manual'&&flat===null)throw Error('Enter a flat amount.');
+   for(const item of targets){
+    const before=pricingSnapshot(item),after={...before};
+    if(hasDiscount)after.post_award_cost_cents=discountedPostAward(item.unit_cost_cents,String(form.get('post_award_discount')||''));
+    if(hasFreight)after.freight_cost_cents=freight;
+    if(install){after.install_mode=install;after.install_percent=installPercent;after.install_cost_cents=install==='manual'?flat:installationCost({...item,...after},installPercent!);}
+    else if(hasDiscount&&after.install_mode==='percent')after.install_cost_cents=installationCost({...item,...after},after.install_percent);
+    if(hasMarkup){after.pricing_mode='markup';after.markup_percent=markup; if(item.unit_cost_cents==null)throw Error('Enter pre-award net and quantity for every selected item before applying markup.');after.unit_price_cents=markedUpCents(item.unit_cost_cents,markup!);}
+    if(markupNeedsRecalculation(before,after,hasMarkup))after.quoted_total_cents=landedSell({...item,...after},after.markup_percent);
+    statements.push(env.DB.prepare('UPDATE entries SET post_award_cost_cents=?,freight_cost_cents=?,install_cost_cents=?,install_mode=?,install_percent=?,pricing_mode=?,markup_percent=?,unit_price_cents=?,quoted_total_cents=? WHERE id=? AND owner=? AND parent=?').bind(after.post_award_cost_cents,after.freight_cost_cents,after.install_cost_cents,after.install_mode,after.install_percent,after.pricing_mode,after.markup_percent,after.unit_price_cents,after.quoted_total_cents,item.id,owner,parent));
+    statements.push(env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,item.id,'price_event','Bulk pricing update',JSON.stringify({type:'pricing_update',before,after,treatment:'update'}),new Date().toISOString()));
+   }
+  }catch(error:any){return out({error:error.message||'Enter valid pricing amounts.'},400);}
+  await env.DB.batch(statements);return out({ok:true,count:ids.length});
+ }
+ if(action==='bulkDeleteItems'){
+  const parent=String(form.get('parent')||''),ids=JSON.parse(String(form.get('ids')||'[]'));
+  if(!parent||!Array.isArray(ids)||!ids.length||ids.length>500||ids.some(i=>typeof i!=='string')||new Set(ids).size!==ids.length)return out({error:'Select between 1 and 500 different item lines.'},400);
+  const targets=await Promise.all(ids.map(i=>env.DB.prepare("SELECT id FROM entries WHERE id=? AND owner=? AND parent=? AND kind='item'").bind(i,owner,parent).first()));
+  if(targets.some(i=>!i))return out({error:'The selected items changed. Refresh and review your selection.'},409);
+  const tree="WITH RECURSIVE removed(id) AS (SELECT id FROM entries WHERE id=? AND owner=? AND parent=? AND kind='item' UNION SELECT e.id FROM entries e JOIN removed r ON e.parent=r.id WHERE e.owner=?)";
+  for(const itemID of ids){const files=await env.DB.prepare(tree+" SELECT key FROM entries WHERE id IN (SELECT id FROM removed) AND owner=? AND key IS NOT NULL").bind(itemID,owner,parent,owner,owner).all<any>();for(const file of files.results)removedFileKeys.add(file.key);}
+  await env.DB.batch(ids.map(itemID=>env.DB.prepare(tree+" DELETE FROM entries WHERE id IN (SELECT id FROM removed) AND owner=?").bind(itemID,owner,parent,owner,owner)));
+  await cleanRemovedFiles();return out({ok:true,count:ids.length});
  }
  if(action==='bulkDeleteAttachments'){
   const parent=String(form.get('parent')||''),ids=JSON.parse(String(form.get('ids')||'[]'));
@@ -226,11 +298,18 @@ export async function pmPost(req:Request,env:PMEnv){
  if(action==='delete'){
   if(!existing)return out({error:'Item not found.'},404);
   if(existing.kind==='stage'&&await env.DB!.prepare('SELECT id FROM entries WHERE stage=? AND owner=? LIMIT 1').bind(id,owner).first())return out({error:'Move projects out of this stage before removing it.'},409);
+  if(existing.kind==='folder'&&form.get('delete_contents')==='yes'){
+   const tree="WITH RECURSIVE removed(id) AS (SELECT id FROM entries WHERE id=? AND owner=? AND kind='folder' UNION SELECT e.id FROM entries e JOIN removed r ON e.parent=r.id WHERE e.owner=?)";
+   const files=await env.DB.prepare(tree+" SELECT key FROM entries WHERE id IN (SELECT id FROM removed) AND owner=? AND key IS NOT NULL").bind(id,owner,owner,owner).all<any>();
+   for(const file of files.results)removedFileKeys.add(file.key);
+   await env.DB.batch([env.DB.prepare(tree+" DELETE FROM entries WHERE id IN (SELECT id FROM removed) AND owner=?").bind(id,owner,owner,owner)]);
+   await cleanRemovedFiles();return out({ok:true});
+  }
   const children=await env.DB!.prepare('SELECT id FROM entries WHERE parent=? AND owner=? LIMIT 1').bind(id,owner).first();if(children)return out({error:'Remove the contents before deleting this folder.'},409);
   if(existing.key&&!await env.DB.prepare('SELECT id FROM entries WHERE key=? AND id!=? LIMIT 1').bind(existing.key,id).first())await env.BUCKET!.delete(existing.key);
   await env.DB!.prepare('DELETE FROM entries WHERE id=? AND owner=?').bind(id,owner).run();return out({ok:true});
  }
- const category=String(form.get('job_category')||existing?.job_category||'quoting');if(!['quoting','awarded'].includes(category))return out({error:'Invalid job section.'},400);
+ const category=String(form.get('job_category')||existing?.job_category||'quoting');if(!['quoting','awarded','completed'].includes(category))return out({error:'Invalid job section.'},400);
  const rawQuantity=String(form.get('quantity')||'').trim();const quantity=rawQuantity===''?null:Number(rawQuantity);
  if(quantity!==null&&(!Number.isFinite(quantity)||quantity<0))return out({error:'Quantity must be a nonnegative number.'},400);
  const shipping=form.has('shipping_destination')?String(form.get('shipping_destination')||''):existing?.shipping_destination||'';const receiving=form.has('expected_receiving_date')?String(form.get('expected_receiving_date')||''):existing?.expected_receiving_date||'';
@@ -250,7 +329,10 @@ export async function pmPost(req:Request,env:PMEnv){
    if(!itemnumber)return out({error:'Enter an item number.'},400);
   }
   const update=env.DB!.prepare('UPDATE entries SET name=?,content=?,date=?,itemnumber=?,manufacturer=?,model=?,quantity=?,color=?,po_number=?,quote_number=?,shipping_destination=?,expected_receiving_date=?,shop_drawings=?,job_category=? WHERE id=? AND owner=?').bind(name,content,date,itemnumber||null,manufacturer||null,model||null,quantity,color,poNumber||null,quoteNumber||null,shipping||null,receiving||null,shopDrawings||null,existing.kind==='folder'&&!existing.parent?category:null,id,owner);
-  if(existing.kind==='status'&&existing.name!==name)await env.DB.batch([update,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(name,owner,existing.name,...scopedArgs)]);else if(existing.kind==='folder'&&!existing.parent)await env.DB.batch([update,...await categoryItemChanges(category)]);else await update.run();await cleanRemovedFiles();return out({ok:true});
+  if(existing.kind==='status'&&existing.name!==name)await env.DB.batch([update,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(name,owner,existing.name,...scopedArgs)]);else if(existing.kind==='folder'&&!existing.parent)await env.DB.batch([update,...await categoryItemChanges(category)]);else if(existing.kind==='item'&&quantity!==existing.quantity&&existing.install_mode==='percent'){
+   const install=installationCost({...existing,quantity},existing.install_percent);const after={...pricingSnapshot(existing),install_cost_cents:install};if(existing.pricing_mode==='markup')after.quoted_total_cents=landedSell({...existing,quantity,install_cost_cents:install},existing.markup_percent);
+   await env.DB.batch([update,env.DB.prepare('UPDATE entries SET install_cost_cents=?,quoted_total_cents=? WHERE id=? AND owner=?').bind(install,after.quoted_total_cents,id,owner),env.DB.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES (?,?,?,?,?,?,?)').bind(crypto.randomUUID(),owner,id,'price_event','Quantity pricing update',JSON.stringify({type:'pricing_update',before:pricingSnapshot(existing),after}),new Date().toISOString())]);
+  }else await update.run();await cleanRemovedFiles();return out({ok:true});
  }
  if(existing)return out({ok:true});
  const parent=String(form.get('parent')||'')||null;const kind=String(form.get('kind')||'folder');
@@ -263,18 +345,20 @@ export async function pmPost(req:Request,env:PMEnv){
  if(kind==='status'&&await env.DB.prepare("SELECT id FROM entries WHERE owner=? AND kind='status' AND stage_scope IS ? AND (lower(name)=lower(?) OR (?!='' AND content=?))").bind(owner,scope,name,content,content).first())return out({error:'This stage already exists. Select it to edit it.'},409);
  let url=String(form.get('url')||'').trim();let key=null;let mime=null;let size=null;let title=name;
  if(kind==='link'){try{if(new URL(url).protocol!=='https:')throw 0;}catch{return out({error:'Enter a valid HTTPS document link.'},400);}}
- if(kind==='file'){
+ if(kind==='note'&&(!title||!content||!/^\d{4}-\d{2}-\d{2}$/.test(date)))return out({error:'Enter note text and a valid date.'},400);
+ if(kind==='file'||kind==='note'&&form.get('file') instanceof File){
   const file=form.get('file');if(!(file instanceof File))return out({error:'Choose a file.'},400);if(file.size>25*1024*1024)return out({error:'Files can be up to 25 MB. Use a Drive link for larger files.'},400);
-  title=file.name.slice(0,300);mime=file.type||'application/octet-stream';size=file.size;key=owner+'/'+id;await env.BUCKET!.put(key,file.stream(),{httpMetadata:{contentType:mime}});
+  if(kind==='note'&&(!['image/png','image/jpeg','image/webp'].includes(file.type)||!file.size||file.size>10*1024*1024))return out({error:'Choose a PNG, JPEG or WebP screenshot up to 10 MB.'},400);
+  if(kind==='file')title=file.name.slice(0,300);mime=file.type||'application/octet-stream';size=file.size;key=owner+'/'+id;await env.BUCKET!.put(key,file.stream(),{httpMetadata:{contentType:mime}});
  }
  if(!title || (kind==='note'&&!content))return out({error:'Enter the required fields.'},400);
  if(kind==='note'&&!/^\d{4}-\d{2}-\d{2}$/.test(date))return out({error:'Choose a date.'},400);
  const insert=env.DB!.prepare('INSERT INTO entries (id,owner,parent,kind,name,content,url,key,mime,size,date,stage,itemnumber,manufacturer,model,quantity,color,created,po_number,quote_number,shipping_destination,expected_receiving_date,shop_drawings,job_category,stage_scope) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(id,owner,parent,kind,title,content,url||null,key,mime,size,date||null,kind==='item'?String(form.get('stage')||'Pending quote'):null,itemnumber||null,manufacturer||null,model||null,quantity,color,new Date().toISOString(),poNumber||null,quoteNumber||null,shipping||null,receiving||null,shopDrawings||null,kind==='folder'&&!parent?category:null,kind==='status'?scope:null);
- if(kind==='status'&&content&&content!==title)await env.DB.batch([insert,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(title,owner,content,...scopedArgs)]);else await insert.run();return out({ok:true});
+ if(kind==='status'&&content&&content!==title)await env.DB.batch([insert,env.DB.prepare(("UPDATE entries SET stage=? WHERE owner=? AND kind='item' AND stage=?"+scopeSQL)).bind(title,owner,content,...scopedArgs)]);else {try{await insert.run();}catch(error){if(key)await env.BUCKET.delete(key);throw error;}}return out({ok:true});
  }catch{return out({error:'Could not save. Please try again.'},500);}
 }
 
 
 
-export async function pmFile(req:Request,env:PMEnv){const owner='premier-workspace';if(!owner)return new Response('Sign in required',{status:401});const id=new URL(req.url).searchParams.get('id');const row=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();if(!row?.key)return new Response('Not found',{status:404});const file=await env.BUCKET!.get(row.key);if(!file)return new Response('Not found',{status:404});return new Response(file.body,{headers:{'Content-Type':row.mime==='application/pdf'?'application/pdf':'application/octet-stream','Content-Disposition':(row.mime==='application/pdf'?'inline':'attachment')+"; filename*=UTF-8''"+encodeURIComponent(row.name),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
+export async function pmFile(req:Request,env:PMEnv){const owner='premier-workspace';if(!owner)return new Response('Sign in required',{status:401});const id=new URL(req.url).searchParams.get('id');const row=await env.DB!.prepare('SELECT * FROM entries WHERE id=? AND owner=?').bind(id,owner).first<any>();if(!row?.key)return new Response('Not found',{status:404});const file=await env.BUCKET!.get(row.key);if(!file)return new Response('Not found',{status:404});const inline=row.mime==='application/pdf'||['image/png','image/jpeg','image/webp'].includes(row.mime);return new Response(file.body,{headers:{'Content-Type':inline?row.mime:'application/octet-stream','Content-Disposition':(inline?'inline':'attachment')+"; filename*=UTF-8''"+encodeURIComponent(row.name),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}
 

@@ -1,7 +1,16 @@
 import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';import test from 'node:test';
 const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/latest-notes.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:api});
+test('imported specification does not replace the latest everyday note',()=>{const result=api.latestNotes([{id:'regular',kind:'note',parent:'a',content:'Call factory',created:'2026-01-01'},{id:'awarded-import-details:a',kind:'note',parent:'a',content:'Long specification',created:'2026-10-18'}]);assert.equal(result.get('a').id,'regular');});
 test('latest note is chosen by creation time within each item, independent of chosen note date',()=>{
  const entries=[{id:'old',kind:'note',parent:'a',content:'Older update',created:'2026-10-01T10:00:00Z',date:'2026-12-01'},{id:'new',kind:'note',parent:'a',content:'Most recent update',created:'2026-10-15T10:00:00Z',date:'2026-01-01'},{id:'other',kind:'note',parent:'b',content:'Other item',created:'2026-10-16T10:00:00Z'},{id:'task',kind:'task',parent:'a',content:'Not a note',created:'2026-12-01T10:00:00Z'},{id:'blank',kind:'note',parent:'a',content:'  ',created:'2026-12-01T10:00:00Z'}];
  const result=api.latestNotes(entries);assert.equal(result.get('a').id,'new');assert.equal(result.get('b').id,'other');assert.equal(result.has('missing'),false);assert.equal(entries.length,5);
 });
 test('equal creation times use the same deterministic ID tie break as the note feed',()=>{const result=api.latestNotes([{id:'a',kind:'note',parent:'item',content:'First',created:'2026-10-15T10:00:00Z'},{id:'z',kind:'note',parent:'item',content:'Second',created:'2026-10-15T10:00:00Z'}]);assert.equal(result.get('item').id,'z');});
+
+test('item preview always prefers its latest linked email over newer manual notes',()=>{
+ const entries=[{id:'note',kind:'note',parent:'a',content:'Newer manual note',created:'2026-10-20T12:00:00Z'},{id:'first-email',kind:'email',parent:'a',content:JSON.stringify({body:'Newer sent date, earlier connection',loggedAt:'2026-10-18T12:00:00Z'}),created:'2026-10-18T12:00:00Z'},{id:'last-email',kind:'email',parent:'a',content:JSON.stringify({body:'Older email logged last',loggedAt:'2026-10-19T12:00:00Z'}),created:'2026-10-01T12:00:00Z'},{id:'b-note',kind:'note',parent:'b',content:'Fallback note',created:'2026-10-19T12:00:00Z'}];
+ const result=api.latestItemUpdates(entries);assert.equal(result.get('a').id,'last-email');assert.equal(result.get('b').id,'b-note');assert.equal(result.has('missing'),false);assert.equal(api.latestItemUpdates(entries.filter(e=>e.kind!=='email')).get('a').id,'note');
+});
+test('existing emails without a connection timestamp fall back to email date and stable ID ties',()=>{
+ const result=api.latestItemUpdates([{id:'a',kind:'email',parent:'item',content:'{}',created:'2026-10-15T10:00:00Z'},{id:'z',kind:'email',parent:'item',content:'invalid JSON',created:'2026-10-15T10:00:00Z'}]);assert.equal(result.get('item').id,'z');assert.equal(api.emailDetails(result.get('item')).body,'invalid JSON');assert.equal(api.emailDetails({content:JSON.stringify({body:3,loggedAt:'invalid'}),created:'2026-10-01'}).loggedAt,'2026-10-01');
+});

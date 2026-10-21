@@ -662,9 +662,9 @@ function joinLtiWrappedItemNumbers(pages) {
       const nearby=itemColumn.filter(entry=>!removed.has(entry)&&Math.abs(entry.transform[5]-y)<=height*1.6).sort((a,b)=>b.transform[5]-a.transform[5]);
       if (nearby.length!==2) continue;
       const [first,last]=nearby;
-      // Only join an explicit range split in the item column around a quantity.
+      // Join explicit ranges or combined item lists wrapped around a quantity.
       if (first.transform[5]<y-2.2||last.transform[5]>y+2.2||first.transform[5]-last.transform[5]<2.2) continue;
-      if (!/^(?=.*\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*[-–—]$/i.test(text(first))||!/^(?=.*\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*$/i.test(text(last))) continue;
+      if (!/^(?=.*\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*[-–—,]$/i.test(text(first))||!/^(?=.*\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*$/i.test(text(last))) continue;
       const item=normalizeItemIdentifier(text(first).replace(/[–—]$/,"-")+text(last));
       if (!item) continue;
       removed.add(first);
@@ -686,7 +686,8 @@ function extractLtiRows(lines,metadata,pages=[]) {
   const rows=[];
   const {categoryByItem,titleLines}=extractLtiCategoryInfo(pages);
   const money="(?:\\$?\\(?[\\d,]+(?:\\.\\d{2})?\\)?)";
-  const itemIdentifier="((?=[A-Z0-9._/-]*\\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*)";
+  const itemPart="(?=[A-Z0-9._/-]*\\d)[A-Z0-9]+(?:[._/-][A-Z0-9]+)*";
+  const itemIdentifier=`(${itemPart}(?:\\s*,\\s*${itemPart})*)`;
   const rowPattern=new RegExp(`^${itemIdentifier}\\s+(\\d+(?:\\.\\d+)?)\\s+(.+?)(?:\\s+${money}\\s+${money})?$`,`i`);
   let current=null;
   const finishCurrent=()=>{

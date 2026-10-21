@@ -2,11 +2,105 @@ import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';im
 const database=new DatabaseSync(':memory:');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())database.exec(fs.readFileSync('drizzle/'+f,'utf8'));
 const DB={prepare(sql){return {bind(...args){return {first:async()=>database.prepare(sql).get(...args)||null,all:async()=>({results:database.prepare(sql).all(...args)}),run:async()=>database.prepare(sql).run(...args),sql,args};},first:async()=>database.prepare(sql).get()||null,sql,args:[]}},async batch(statements){database.exec('BEGIN');try{const result=statements.map(s=>database.prepare(s.sql).run(...s.args));database.exec('COMMIT');return result;}catch(e){database.exec('ROLLBACK');throw e;}}};
 const pricingAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/pricing.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:pricingAPI,Intl});
+const scheduleAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/schedule.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:scheduleAPI});
 const stageAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/stages.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:stageAPI});const API={};const blobs=new Map();const env={DB,BUCKET:{put:async(key,stream)=>blobs.set(key,await new Response(stream).arrayBuffer()),get:async key=>blobs.has(key)?{body:blobs.get(key)}:null,delete:async key=>blobs.delete(key)}};const transfer=[{id:'test-project',parent:null,kind:'folder',name:'Test Project',content:'',created:'2026-10-13T12:00:00.000Z'},...Array.from({length:9},(_,index)=>({id:'test-item-'+index,parent:'test-project',kind:'item',name:'Test equipment '+(index+1),content:'',itemnumber:String(index+1),manufacturer:'Example manufacturer',model:'TEST-'+(index+1),quantity:1,stage:'Pending quote',created:'2026-10-13T12:00:00.000Z'})),{id:'test-status',parent:null,kind:'status',name:'Pending quote',content:'',color:'#bc6454',created:'2026-10-13T12:00:00.000Z'}];
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/stages'?stageAPI:n==='../lib/pricing'?pricingAPI:transfer,Response,Request,FormData,File,crypto,URL});
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/stages'?stageAPI:n==='../lib/pricing'?pricingAPI:n==='../lib/schedule'?scheduleAPI:transfer,Response,Request,FormData,File,crypto,URL});
 const parent=transfer.find(r=>r.kind==='folder').id;const ids=transfer.filter(r=>r.kind==='item').slice(0,5).map(r=>r.id);
+test('bulk line deletion validates every target, removes descendants and preserves shared files',async()=>{
+ for(const id of ['delete-job','other-delete-job'])await post({id,kind:'folder',name:'Deletion fixture'});
+ for(const [id,p] of [['delete-a','delete-job'],['delete-b','delete-job'],['delete-keep','delete-job'],['delete-other','other-delete-job']])await post({id,parent:p,kind:'item',name:'Equipment',itemnumber:'1'});
+ await post({id:'delete-note',parent:'delete-a',kind:'note',name:'Note',content:'Fixture',date:'2026-10-18'});
+ await post({id:'delete-file',parent:'delete-b',kind:'file',file:new File(['bytes'],'fixture.pdf')});
+ const key=database.prepare('SELECT key FROM entries WHERE id=?').get('delete-file').key;
+ await post({id:'delete-shared',parent:'delete-keep',kind:'link',name:'Retained',url:'https://example.com'});
+ database.prepare('UPDATE entries SET key=? WHERE id=?').run(key,'delete-shared');
+ for(const selection of [[],['delete-a','delete-a'],['delete-a','missing'],['delete-a','delete-other'],['delete-a','delete-note'],['delete-a','delete-job']]){
+  assert.notEqual((await post({action:'bulkDeleteItems',parent:'delete-job',ids:JSON.stringify(selection)})).status,200);
+  assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get('delete-a'));
+ }
+ assert.equal((await post({action:'bulkDeleteItems',parent:'delete-job',ids:JSON.stringify(['delete-a','delete-b'])},'https://attacker.test')).status,403);
+ assert.equal((await post({action:'bulkDeleteItems',parent:'delete-job',ids:JSON.stringify(['delete-a','delete-b'])})).status,200);
+ for(const id of ['delete-a','delete-b','delete-note','delete-file'])assert.equal(database.prepare('SELECT id FROM entries WHERE id=?').get(id),undefined);
+ assert.ok(blobs.has(key));for(const id of ['delete-job','delete-keep','delete-other'])assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get(id));
+ assert.equal((await post({action:'bulkDeleteItems',parent:'delete-job',ids:JSON.stringify(['delete-keep'])})).status,200);assert.ok(!blobs.has(key));
+ database.prepare("DELETE FROM entries WHERE id IN ('delete-job','other-delete-job','delete-other')").run();
+});
 async function post(v,origin='https://combined.test'){const body=new FormData();if(v.kind==='status'||v.action==='deleteStatus')v={stage_scope:parent,...v};for(const [k,value]of Object.entries(v))body.set(k,value instanceof File?value:String(value));const r=await API.pmPost(new Request('https://combined.test/api/pm/entries',{method:'POST',headers:{origin},body}),env);return {status:r.status,body:await r.json()};}
+test('email screenshot note retains text and image through edit and cleans bytes on removal',async()=>{
+ await post({id:'email-job',kind:'folder',name:'Email fixture'});
+ const file=new File(['image fixture'],'email.png',{type:'image/png'});
+ const values={id:'email-note',parent:'email-job',kind:'note',name:'Project update',content:'Required power and amperage for each unit',date:'2026-10-19',file};
+ assert.equal((await post({...values,content:''})).status,400);assert.equal(blobs.has('premier-workspace/email-note'),false);
+ assert.equal((await post({...values,file:new File(['bad'],'email.svg',{type:'image/svg+xml'})})).status,400);
+ assert.equal((await post(values)).status,200);
+ const row=database.prepare('SELECT * FROM entries WHERE id=?').get(values.id);assert.equal(row.kind,'note');assert.equal(row.mime,'image/png');assert.equal(row.content,values.content);assert.ok(blobs.has(row.key));
+ const response=await API.pmFile(new Request('https://combined.test/api/pm/file?id=email-note'),env);assert.equal(response.headers.get('Content-Type'),'image/png');assert.match(response.headers.get('Content-Disposition'),/^inline/);
+ assert.equal((await post({...values,action:'edit',content:'Reviewed email text',file:undefined})).status,200);assert.equal(database.prepare('SELECT key FROM entries WHERE id=?').get(values.id).key,row.key);
+ assert.equal((await post({action:'delete',id:values.id})).status,200);assert.equal(blobs.has(row.key),false);await post({action:'delete',id:'email-job'});
+});
 test('migration imports source records once and preserves deletion',async()=>{await API.initializePM(env);assert.equal(database.prepare('SELECT count(*) AS n FROM entries').get().n,transfer.length);await API.initializePM(env);assert.equal(database.prepare('SELECT count(*) AS n FROM entries').get().n,transfer.length);});
+test('awarded imported specification note updates once and preserves other notes',async()=>{
+ await post({kind:'folder',id:'awarded-import-job',name:'Import fixture',job_category:'awarded'});
+ await post({kind:'item',id:'awarded-import-item',parent:'awarded-import-job',name:'Counter',itemnumber:'23/24'});
+ await post({kind:'note',id:'manual-import-note',parent:'awarded-import-item',name:'Manual note',content:'Keep me',date:'2026-10-18'});
+ assert.equal((await post({action:'awardedImportDetails',id:'awarded-import-item',content:'Specification and accessories'})).status,200);
+ assert.equal((await post({action:'awardedImportDetails',id:'awarded-import-item',content:'Updated specification and accessories'})).status,200);
+ const note=database.prepare('SELECT * FROM entries WHERE id=?').get('awarded-import-details:awarded-import-item');assert.equal(note.kind,'note');assert.equal(note.content,'Updated specification and accessories');
+ assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent=? AND kind='note'").get('awarded-import-item').n,2);assert.equal(database.prepare('SELECT content FROM entries WHERE id=?').get('manual-import-note').content,'Keep me');
+ await post({kind:'folder',id:'quoted-import-job',name:'Quoted import fixture',job_category:'quoting'});
+ await post({kind:'item',id:'quoted-import-item',parent:'quoted-import-job',name:'Range',itemnumber:'23/24'});
+ assert.equal((await post({action:'awardedImportDetails',id:'quoted-import-item',content:'Quoted specification with accessories'})).status,200);
+ assert.equal((await post({action:'jobCategory',id:'quoted-import-job',job_category:'awarded'})).status,200);
+ assert.equal(database.prepare('SELECT content FROM entries WHERE id=?').get('awarded-import-details:quoted-import-item').content,'Quoted specification with accessories');
+ assert.equal((await post({action:'awardedImportDetails',id:'quoted-import-item',content:'Awarded specification with accessories'})).status,200);
+ assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent=? AND kind='note'").get('quoted-import-item').n,1);
+ database.prepare("DELETE FROM entries WHERE parent='quoted-import-item' OR parent='quoted-import-job' OR id='quoted-import-job'").run();
+ assert.equal((await post({action:'awardedImportDetails',id:'awarded-import-item',content:'x'.repeat(20001)})).status,400);
+ database.prepare("DELETE FROM entries WHERE parent='awarded-import-item' OR parent='awarded-import-job' OR id='awarded-import-job'").run();
+});
+test('screenshot schedule imports quoted-only rows atomically without pricing and retries do not duplicate',async()=>{
+ await post({kind:'folder',id:'schedule-quote-job',name:'Screenshot fixture',job_category:'quoting'});
+ const rows=[{itemnumber:'001',name:'Counter',quantity:2,manufacturer:'Maker',model:'CUSTOM',details:'Printed specification',warning:''},{itemnumber:'001',name:'Another counter',quantity:null,manufacturer:'',model:'',details:'',warning:'Check quantity'}],identifiers=['screenshot-item-one','screenshot-item-two'];
+ const values={action:'importSchedule',parent:'schedule-quote-job',rows:JSON.stringify(rows),ids:JSON.stringify(identifiers)};
+ assert.equal((await post({...values,rows:JSON.stringify([rows[0],{...rows[1],quantity:-1}])})).status,400);assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent='schedule-quote-job'").get().n,0);
+ assert.equal((await post(values)).status,200);assert.equal((await post(values)).status,200);
+ assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent='schedule-quote-job' AND kind='item'").get().n,2);assert.equal(database.prepare("SELECT unit_cost_cents FROM entries WHERE id='screenshot-item-one'").get().unit_cost_cents,null);
+ assert.equal(database.prepare("SELECT content FROM entries WHERE id='awarded-import-details:screenshot-item-one'").get().content,'Printed specification');
+ await post({action:'jobCategory',id:'schedule-quote-job',job_category:'awarded'});assert.equal((await post({...values,ids:JSON.stringify(['different-item-one','different-item-two'])})).status,400);
+ database.prepare("DELETE FROM entries WHERE parent IN ('screenshot-item-one','screenshot-item-two','schedule-quote-job') OR id='schedule-quote-job'").run();
+});
+test('bulk pricing applies per-line percentages and flat amounts with validation and history',async()=>{
+ await post({kind:'folder',id:'bulk-price-job',name:'Pricing fixture'});
+ for(const [id,qty,pre,after] of [['bp-a',2,100000,80000],['bp-b',3,20000,null],['bp-c',1,null,null]]){
+  await post({kind:'item',id,parent:'bulk-price-job',name:'Equipment',itemnumber:id,quantity:qty});database.prepare('UPDATE entries SET unit_cost_cents=?,post_award_cost_cents=? WHERE id=?').run(pre,after,id);
+ }
+ const read=id=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ const apply=async(selection,changes,expected)=>post({action:'bulkPricing',parent:'bulk-price-job',ids:JSON.stringify(selection),expected:JSON.stringify(expected||Object.fromEntries(selection.map(id=>[id,{...pricingAPI.pricingSnapshot(read(id)),quantity:read(id).quantity}]))),...changes});
+ assert.equal((await apply(['bp-a','bp-b'],{install_mode:'percent',install:'3',freight:'100',markup:'10'})).status,200);
+ assert.equal(read('bp-a').install_cost_cents,4800);assert.equal(read('bp-b').install_cost_cents,1800);
+ assert.equal(read('bp-a').quoted_total_cents,236280);assert.equal(read('bp-b').quoted_total_cents,78980);
+ assert.equal(read('bp-c').freight_cost_cents,null);
+ const saved=JSON.stringify(read('bp-a'));
+ assert.equal((await apply(['bp-a','bp-c'],{install_mode:'percent',install:'3'})).status,400);assert.equal(JSON.stringify(read('bp-a')),saved);
+ assert.equal((await apply(['bp-a','bp-b'],{freight:'-1'})).status,400);assert.equal(JSON.stringify(read('bp-a')),saved);
+ assert.equal((await apply(['bp-a','bp-b'],{freight:'1'},{})).status,409);
+ assert.equal((await apply(['bp-a','bp-b'],{install_mode:'manual',install:'50',freight:'0',markup:'0'})).status,200);
+ for(const id of ['bp-a','bp-b']){assert.equal(read(id).install_cost_cents,5000);assert.equal(read(id).freight_cost_cents,0);assert.equal(read(id).install_mode,'manual');assert.equal(read(id).markup_percent,0);assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent=? AND kind='price_event'").get(id).n,2);}
+ assert.equal(read('bp-a').quoted_total_cents,205000);
+ await apply(['bp-a'],{freight:'25'});assert.equal(read('bp-a').install_cost_cents,5000);assert.equal(read('bp-a').quoted_total_cents,207500);
+ await apply(['bp-a','bp-b'],{install_mode:'percent',install:'3',markup:'10'});
+ const fixedSell=read('bp-a').quoted_total_cents;
+ assert.equal((await apply(['bp-a','bp-b'],{post_award_discount:'5'})).status,200);
+ assert.equal(read('bp-a').post_award_cost_cents,95000);assert.equal(read('bp-b').post_award_cost_cents,19000);assert.equal(read('bp-a').install_cost_cents,5700);assert.equal(read('bp-a').quoted_total_cents,fixedSell);
+ const discountSaved=JSON.stringify(read('bp-a'));
+ for(const discount of ['-1','101',''])assert.equal((await apply(['bp-a','bp-b'],{post_award_discount:discount})).status,400);
+ assert.equal((await apply(['bp-a','bp-c'],{post_award_discount:'5'})).status,400);assert.equal(JSON.stringify(read('bp-a')),discountSaved);
+ assert.equal((await apply(['bp-a'],{post_award_discount:'0'})).status,200);assert.equal(read('bp-a').post_award_cost_cents,100000);
+ assert.equal((await apply(['bp-b'],{post_award_discount:'100'})).status,200);assert.equal(read('bp-b').post_award_cost_cents,0);
+ assert.equal((await post({action:'pricing',id:'bp-a',type:'pricing_update',pricing_mode:'markup',markup_percent:'10',post_award_discount:'5',expected:JSON.stringify(pricingAPI.pricingSnapshot(read('bp-a'))),landed_markup:'yes',request_id:'post-award-discount-test'})).status,200);
+ assert.equal(read('bp-a').post_award_cost_cents,95000);assert.equal(read('bp-a').quoted_total_cents,fixedSell);
+ database.prepare("DELETE FROM entries WHERE parent IN ('bp-a','bp-b','bp-c','bulk-price-job') OR id='bulk-price-job'").run();
+});
 test('bulk status and PO assignment updates only selected items',async()=>{assert.equal((await post({action:'bulkStatus',ids:JSON.stringify(ids),stage:'PO issued',po_number:'PO-1042'})).status,200);for(const id of ids){const row=database.prepare('SELECT stage,po_number FROM entries WHERE id=?').get(id);assert.equal(row.stage,'PO issued');assert.equal(row.po_number,'PO-1042');}assert.equal(database.prepare('SELECT count(*) AS n FROM entries WHERE stage=?').get('PO issued').n,5);});
 test('shared note appears independently under every selected item',async()=>{assert.equal((await post({action:'bulkNote',ids:JSON.stringify(ids),content:'Received together on PO-1042',date:'2026-10-13'})).status,200);for(const id of ids)assert.equal(database.prepare("SELECT count(*) AS n FROM entries WHERE parent=? AND kind='note'").get(id).n,1);});
 test('bulk operations validate all items before changing any record',async()=>{assert.equal((await post({action:'bulkStatus',ids:JSON.stringify([ids[0],'missing']),stage:'Installed'})).status,400);assert.equal(database.prepare('SELECT stage FROM entries WHERE id=?').get(ids[0]).stage,'PO issued');assert.equal((await post({action:'bulkNote',ids:JSON.stringify(ids),content:'',date:'2026-10-13'})).status,400);assert.equal((await post({action:'bulkStatus',ids:JSON.stringify(ids),stage:'Installed'},'https://attacker.test')).status,403);});
@@ -111,7 +205,7 @@ test('quote numbers support individual and bulk edits independently from PO numb
 });
 
 test('spreadsheet duplicates match distinct records and extra rows stay new',()=>{
- const imp={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/equipment-import.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:imp});
+ const imp={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/equipment-import.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:imp,require:()=>pricingAPI});
  const parsed=imp.parseEquipmentRows([['1',1,'Hood','A','M'],['1',2,'Sink','B','N'],['1',3,'Table','C','O']]);assert.equal(parsed.errors.length,0);assert.equal(parsed.rows.length,3);
  const existing=[{id:'sink',kind:'item',parent:'job',itemnumber:'1',name:'Sink',manufacturer:'B',model:'N'},{id:'hood',kind:'item',parent:'job',itemnumber:'1',name:'Hood',manufacturer:'A',model:'M'}];
  const matches=imp.matchEquipmentRows(parsed.rows,existing,'job');assert.equal(matches[0].id,'hood');assert.equal(matches[1].id,'sink');assert.equal(matches[2],undefined);
@@ -329,7 +423,7 @@ test('landed markup saves exact line sell net and installation with costs kept s
  assert.equal(current().quoted_total_cents,253000);assert.equal(current().install_cost_cents,20000);assert.equal(pricingAPI.itemPricing(current(),[]).profit,23000);
  assert.equal((await post({...values,post_award_cost_cents:'950',unit_price_cents:'1100',quoted_total_cents:'2530',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'no',request_id:'landed-markup-later'})).status,200);
  assert.equal(current().quoted_total_cents,253000);assert.equal(pricingAPI.itemPricing(current(),[]).profit,33000);
- assert.equal((await post({...values,post_award_cost_cents:'950',markup_percent:'0',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'yes',request_id:'landed-zero-markup'})).status,200);assert.equal(current().quoted_total_cents,220000);
+ assert.equal((await post({...values,post_award_cost_cents:'950',markup_percent:'0',expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),recalculate_sell:'yes',request_id:'landed-zero-markup'})).status,200);assert.equal(current().quoted_total_cents,230000);
 });
 test('freight and install added after markup automatically recalculate exact sell net',async()=>{
  const id='pricing-entry-order-test';await post({id,parent,kind:'item',name:'Order test',itemnumber:'ORDER',quantity:4});const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
@@ -338,4 +432,74 @@ test('freight and install added after markup automatically recalculate exact sel
  assert.equal((await update({quoted_total_cents:'66888.20',freight_cost_cents:'100'})).status,200);assert.equal(current().quoted_total_cents,6699120);
  assert.equal((await update({quoted_total_cents:'66991.20',freight_cost_cents:'100',install_cost_cents:'500'})).status,200);assert.equal(current().quoted_total_cents,6750620);
  assert.equal((await update({quoted_total_cents:'67506.20',freight_cost_cents:'100',install_cost_cents:'500',post_award_cost_cents:'15000'})).status,200);assert.equal(current().quoted_total_cents,6750620);
+});
+test('installation percent saves calculated line cost and preserves sell for post-award cost edits',async()=>{
+ const id='install-percent-test';await post({id,parent,kind:'item',name:'Install percentage',itemnumber:'INS',quantity:4});const current=()=>database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ const values={action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',unit_price_cents:'',freight_cost_cents:'100',freight_charge_cents:'',install_cost_cents:'',install_mode:'percent',install_percent:'4',pricing_mode:'markup',markup_percent:'3',landed_markup:'yes',recalculate_sell:'no'};
+ async function update(extra={}){return post({...values,expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),request_id:crypto.randomUUID(),...extra});}
+ assert.equal((await update()).status,200);assert.equal(current().install_cost_cents,16000);assert.equal(current().quoted_total_cents,438780);
+ assert.equal((await update({unit_price_cents:'1030',quoted_total_cents:'4387.80',post_award_cost_cents:'950'})).status,200);assert.equal(current().install_cost_cents,15200);assert.equal(current().quoted_total_cents,438780);
+ assert.equal((await update({unit_price_cents:'1030',quoted_total_cents:'4387.80',post_award_cost_cents:'950',install_percent:'5'})).status,200);assert.equal(current().install_cost_cents,19000);assert.equal(current().quoted_total_cents,441870);
+ assert.equal((await post({action:'edit',id,name:current().name,itemnumber:'INS',quantity:2})).status,200);assert.equal(current().install_cost_cents,9500);
+ assert.equal((await update({install_mode:'manual',install_cost_cents:'200',pricing_mode:'manual',quoted_total_cents:'4000'})).status,200);assert.equal(current().install_cost_cents,20000);assert.equal(current().install_percent,null);
+});
+test('pricing template rows import costs percentage installation and preserve sell on post-award-only reimport',async()=>{
+ const imp={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/equipment-import.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:imp,require:()=>pricingAPI});
+ const parsed=imp.parseEquipmentRows([['Item number','Quantity','Category / Description','Pre-award unit net','Freight net','Install %','Markup %'],['PRICE-CSV','4','Counter','1000','100','3','3']]);assert.equal(parsed.errors.length,0);const row=parsed.rows[0],id='template-price-api';
+ assert.equal((await post({action:'create',kind:'item',parent,id,itemnumber:row.itemnumber,name:row.name,quantity:row.quantity})).status,200);
+ assert.equal((await post({...imp.equipmentImportPricing(row),id,request_id:'template-import-price'})).status,200);
+ let old=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(old.install_cost_cents,12000);assert.equal(old.quoted_total_cents,434660);
+ const edit=imp.parseEquipmentRows([['Item number','Post-award unit net'],['PRICE-CSV','900']]).rows[0];assert.equal((await post({...imp.equipmentImportPricing(edit,old),id,request_id:'template-post-edit'})).status,200);old=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(old.install_cost_cents,10800);assert.equal(old.quoted_total_cents,434660);
+ const qty=imp.parseEquipmentRows([['Item number','Quantity','Pre-award unit net'],['PRICE-CSV','2','1100']]).rows[0],priceForm=imp.equipmentImportPricing(qty,old);
+ assert.equal((await post({action:'edit',id,name:old.name,itemnumber:old.itemnumber,quantity:2})).status,200);
+ assert.equal((await post({...priceForm,id,request_id:'template-quantity-edit'})).status,200);
+});
+test('exported spreadsheet preserves fixed sell during markup reimport and recreation',async()=>{
+ const imp={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/equipment-import.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:imp,require:()=>pricingAPI});
+ const id='export-restore-test';await post({id,parent,kind:'item',name:'Archived counter',itemnumber:'ARCHIVE',quantity:2});
+ let item=database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+ assert.equal((await post({action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',post_award_cost_cents:'950',freight_cost_cents:'100',install_mode:'percent',install_percent:'4',pricing_mode:'markup',markup_percent:'3',quoted_total_cents:'2200',preserve_import_sell:'yes',expected:JSON.stringify(pricingAPI.pricingSnapshot(item)),request_id:'export-restore-original'})).status,200);
+ item=database.prepare('SELECT * FROM entries WHERE id=?').get(id);const row=imp.parseEquipmentRows(imp.equipmentExportGrid([item])).rows[0];
+ assert.equal((await post({...imp.equipmentImportPricing(row,item),id,request_id:'export-restore-same'})).status,200);let restored=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(restored.quoted_total_cents,220000);assert.equal(restored.install_cost_cents,7600);assert.equal(restored.markup_percent,3);
+ const second='export-restore-new';await post({id:second,parent,kind:'item',name:row.name,itemnumber:row.itemnumber,quantity:row.quantity});assert.equal((await post({...imp.equipmentImportPricing(row),id:second,request_id:'export-restore-copy'})).status,200);restored=database.prepare('SELECT * FROM entries WHERE id=?').get(second);assert.equal(restored.quoted_total_cents,220000);assert.equal(restored.install_cost_cents,7600);assert.equal(restored.post_award_cost_cents,95000);
+});
+
+test('project deletion requires explicit contents confirmation and removes only its owned tree',async()=>{
+ for(const id of ['project-remove','project-retain'])await post({id,kind:'folder',name:'Delete fixture'});
+ await post({id:'remove-subfolder',parent:'project-remove',kind:'folder',name:'Nested'});
+ await post({id:'remove-equipment',parent:'remove-subfolder',kind:'item',name:'Equipment',itemnumber:'1'});
+ await post({id:'remove-note',parent:'remove-equipment',kind:'note',name:'Note',content:'Synthetic fixture',date:'2026-10-19'});
+ await post({id:'remove-file',parent:'remove-equipment',kind:'file',file:new File(['fixture'],'delete.pdf')});
+ const key=database.prepare('SELECT key FROM entries WHERE id=?').get('remove-file').key;
+ await post({id:'retain-shared',parent:'project-retain',kind:'link',name:'Shared fixture',url:'https://example.com'});
+ database.prepare('UPDATE entries SET key=? WHERE id=?').run(key,'retain-shared');
+ assert.equal((await post({action:'delete',id:'project-remove'})).status,409);
+ assert.equal((await post({action:'delete',id:'project-remove',delete_contents:'yes'},'https://attacker.test')).status,403);
+ assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get('remove-note'));
+ assert.equal((await post({action:'delete',id:'project-remove',delete_contents:'yes'})).status,200);
+ for(const id of ['project-remove','remove-subfolder','remove-equipment','remove-note','remove-file'])assert.equal(database.prepare('SELECT id FROM entries WHERE id=?').get(id),undefined);
+ assert.ok(database.prepare('SELECT id FROM entries WHERE id=?').get('project-retain'));assert.ok(blobs.has(key));
+ assert.equal((await post({action:'delete',id:'project-retain',delete_contents:'yes'})).status,200);assert.ok(!blobs.has(key));
+});
+
+
+test('completed jobs preserve nested items, custom stages, pricing and documents and can reopen',async()=>{
+ assert.equal((await post({id:'completed-test-job',kind:'folder',name:'Completed fixture',job_category:'awarded'})).status,200);
+ await post({id:'completed-test-sub',parent:'completed-test-job',kind:'folder',name:'Nested'});
+ await post({id:'completed-test-item',parent:'completed-test-sub',kind:'item',name:'Fixture',itemnumber:'01',stage:'Installed',quantity:'2',po_number:'P-COMPLETE',quote_number:'Q-COMPLETE'});
+ await post({id:'completed-test-note',parent:'completed-test-item',kind:'note',name:'History',content:'Keep this note',date:'2026-10-19'});
+ await post({id:'completed-test-file',parent:'completed-test-item',kind:'file',file:new File(['keep'],'fixture.pdf')});
+ database.prepare("UPDATE entries SET stage='Custom finished',unit_cost_cents=12000,quoted_total_cents=36000 WHERE id='completed-test-item'").run();
+ const before=database.prepare("SELECT * FROM entries WHERE id='completed-test-item'").get();
+ assert.equal((await post({action:'jobCategory',id:'completed-test-job',job_category:'completed'})).status,200);
+ assert.equal(database.prepare("SELECT job_category FROM entries WHERE id='completed-test-job'").get().job_category,'completed');
+ assert.deepEqual(database.prepare("SELECT * FROM entries WHERE id='completed-test-item'").get(),before);
+ assert.ok(database.prepare("SELECT id FROM entries WHERE kind='status' AND stage_scope='completed' AND name='Custom finished'").get());
+ assert.ok(database.prepare("SELECT id FROM entries WHERE id='completed-test-note'").get());assert.ok(database.prepare("SELECT id FROM entries WHERE id='completed-test-file'").get());
+ assert.equal((await post({action:'jobCategory',id:'completed-test-job',job_category:'awarded'})).status,200);
+ assert.equal(database.prepare("SELECT po_number FROM entries WHERE id='completed-test-item'").get().po_number,'P-COMPLETE');
+ assert.equal((await post({id:'completed-direct',kind:'folder',name:'Completed at creation',job_category:'completed'})).status,200);
+ assert.equal((await post({action:'edit',id:'completed-direct',name:'Renamed completed',job_category:'completed'})).status,200);
+ assert.equal((await post({action:'jobCategory',id:'completed-direct',job_category:'other'})).status,400);
+ await post({action:'delete',id:'completed-direct',delete_contents:'yes'});await post({action:'delete',id:'completed-test-job',delete_contents:'yes'});
 });

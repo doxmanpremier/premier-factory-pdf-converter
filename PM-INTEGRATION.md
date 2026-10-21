@@ -23,3 +23,6 @@ Unified Apply changes for item metadata and notes; bulk note/file removal and dr
 Apply database migrations through 0013. Public source has no production transfer data, secrets or API keys. PM tests use synthetic fixtures. Generated browser bundles are rebuilt by the normal build command.
 
 Factory and overall totals show pre-award and post-award net side by side with one shared Sell net. Blank post-award costs fall back to pre-award costs; explicit zero is respected.
+
+## Updates included October 20, 2026
+Gmail add-on with current-message read-only permissions, explicit email/attachment logging, connection revocation, conversation destinations and item stage updates. Schedule extraction and review, bulk net pricing, awarded imports, percentage installation, editable pricing exports, completed jobs, confirmed project deletion, and workspace usability improvements are included. Apply migrations through 0014. Production transfer records remain excluded; PM tests use synthetic records.
