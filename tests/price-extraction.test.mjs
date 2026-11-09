@@ -28,7 +28,7 @@ const source = [
   between("splitDescriptionAndNumbers", "normalizePrice"),
   between("normalizePrice", "updateProjectFromQuotes"),
   between("buildExportRow", "tableData"),
-  between("categoryData", "downloadCategoryWorkbook"),
+  between("categoryLineTotal", "downloadCategoryWorkbook"),
   between("savedRowToEditable", "deleteSavedProject").replace(/async\s*$/, ""),
   between("csvCell", "setStatus"),
 ].join("\n");
@@ -382,7 +382,7 @@ test("CSV export keeps wrapped specifications on one physical import row", () =>
   const rows=["CWF","Halton","LTI","Ameri"].map((manufacturer,index)=>({item:String(index+1),manufacturer,model:"Quote 123",qty:"2",spec:"Full specification",price:index===3?"":"123.45",category:"Category "+index}));
   context.editableRows=()=>rows;
   context.converterMode="pdf";
-  assert.deepEqual(plain(context.categoryData()),rows.map(row=>[row.category,Number(row.price||0)]));
+  assert.deepEqual(plain(context.categoryData()),rows.map(row=>[row.category,Number(row.price||0)*Number(row.qty)]));
   for (const row of rows) {
     assert.deepEqual(plain(context.buildExportRow(row)),["D",row.item,0,row.manufacturer,row.model,"2",row.spec,0]);
   }
@@ -429,4 +429,35 @@ test("LTI joins combined numbers wrapped above and below the quantity", () => {
  const rows=context.extractLtiRows(pages.flatMap(context.itemsToLines),{quoteNumber:"59881"},pages);
  assert.deepEqual(plain(rows.map(r=>[r.item,r.qty,r.category,r.price])),[["407,407.1","1","Serving Counter","8624.00"],["407.2","1","Quick Switch","7874.00"]]);
  assert.equal(rows[0].spec,"108 inch counter");
+});
+
+
+test("category export uses printed LTI totals and calculates totals for other unit-priced rows", () => {
+  const rows=context.extractLtiRows([
+    "1.2.1 2 Heat Lamp $563.50 $1,127.00",
+    "Heat Lamps",
+    "1.6 2 Hot Food Well Unit, Drop-in, Electric $3,245.00 $6,490.00",
+    "3 11 Serving Counter $74,353.36 $817,887.00",
+    "4 2 Included accessory $0.00 $0.00",
+    "Total $825,504.00",
+  ],{quoteNumber:"57478"});
+  assert.deepEqual(plain(rows.map(r=>[r.item,r.price,r.lineTotal])),[
+    ["1.2.1","563.50","1127.00"],["1.6","3245.00","6490.00"],
+    ["3","74353.36","817887.00"],["4","0.00","0.00"]]);
+  context.editableRows=()=>rows;context.converterMode="pdf";
+  assert.deepEqual(plain(context.categoryData()).map(r=>r[1]),[1127,6490,817887,0]);
+  const saved=context.savedProjectData();
+  const reopened=saved.map(r=>context.savedRowToEditable(r));
+  assert.deepEqual(plain(reopened.map(r=>context.categoryLineTotal(r))),[1127,6490,817887,0]);
+  assert.equal(context.categoryLineTotal({qty:"2",price:"123.45"}),246.9);
+  assert.equal(context.categoryLineTotal({qty:"1",price:"123.45"}),123.45);
+});
+
+test("all 22 LTI quote lines export the quoted $1,528,450 total", () => {
+  const lines=JSON.parse(readFileSync(new URL("./fixtures/lti-line-totals.json",import.meta.url),"utf8"));
+  const rows=context.extractLtiRows(lines,{quoteNumber:"57478"});
+  assert.equal(rows.length,22);
+  assert.equal(rows.reduce((sum,r)=>sum+context.categoryLineTotal(r),0),1528450);
+  assert.equal(rows.filter(r=>Number(r.qty)>1).length,9);
+  assert.equal(rows.find(r=>r.item==="2.10").price,"4768.00");
 });

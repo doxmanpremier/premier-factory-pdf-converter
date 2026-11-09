@@ -232,7 +232,7 @@ async function handleProjects(request: Request, env: Env) {
       const territory = cleanText(body.territory, 20);
       const items: string[][] = [];
       for (const row of (Array.isArray(body.items) ? body.items : []).slice(0, 500)) {
-        if (Array.isArray(row)) items.push(row.slice(0, 10).map((cell) => cleanText(cell, 10000)));
+        if (Array.isArray(row)) items.push(row.slice(0, 11).map((cell) => cleanText(cell, 10000)));
       }
       const dealers = (Array.isArray(body.dealers) ? body.dealers : [])
         .map((dealer) => cleanText(dealer, 160))

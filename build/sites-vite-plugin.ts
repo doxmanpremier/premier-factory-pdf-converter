@@ -24,6 +24,13 @@ export function sites(): Plugin {
     configResolved(config) {
       root = config.root;
     },
+    async buildStart() {
+      for (const asset of ["pm-bundle.js", "pm-bundle.css"]) {
+        if (!(await exists(resolve(root, "public", asset)))) {
+          throw new Error(`Missing Project Management asset ${asset}. Run scripts/build-pm.mjs before the site build.`);
+        }
+      }
+    },
     async closeBundle() {
       const outputDirectory = resolve(root, "dist", ".openai");
       const hostingConfig = resolve(root, ".openai", "hosting.json");
