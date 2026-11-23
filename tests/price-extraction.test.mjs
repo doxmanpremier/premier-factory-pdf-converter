@@ -292,6 +292,28 @@ test("Cline's coordinate parser keeps every unit price and joins wrapped descrip
   ]);
 });
 
+test("Cline's accepts missing-letter item labels without losing decimal IDs or prices", () => {
+  for (const label of ['Item#','Itm#','Ite#','Iem#','Tem#','It#','Im#','Ie#','Te#','Tm#','Em#','Itm. #','Itm ','#','']) {
+    const pages=[[
+      pdfItem(107,700,'ACTIVITY'),pdfItem(222,700,'DESCRIPTION'),pdfItem(422,700,'QTY'),pdfItem(475,700,'RATE'),pdfItem(523,700,'AMOUNT'),
+      pdfItem(107,680,'Equipment'),pdfItem(222,680,'Item#206 Duct Riser'),pdfItem(435,680,'1'),pdfItem(459,680,'495.00'),pdfItem(523,680,'495.00'),
+      pdfItem(107,660,'Equipment'),pdfItem(222,660,`${label}206.1 Duct Riser`),pdfItem(435,660,'1'),pdfItem(459,660,'495.00'),pdfItem(523,660,'495.00'),
+      pdfItem(475,640,'SUBTOTAL'),pdfItem(523,640,'990.00'),
+    ]];
+    const rows=context.extractClinesRows(pages,{quoteNumber:'1201'});
+    assert.deepEqual(plain(rows.map(r=>[r.item,r.qty,r.price,r.model])),[
+      ['206','1','495.00','Q#1201ITEM206'],['206.1','1','495.00','Q#1201ITEM206.1'],
+    ],label);
+    assert.equal(rows.reduce((sum,r)=>sum+Number(r.qty)*Number(r.price),0),990,label);
+    const textRows=context.extractRows(['ACTIVITY DESCRIPTION QTY RATE AMOUNT',`Equipment ${label}206.1 Duct Riser 1 495.00 495.00`,'SUBTOTAL 495.00'],{quoteNumber:'1201'});
+    assert.equal(textRows[0]?.item,'206.1',label);
+    assert.equal(textRows[0]?.price,'495.00',label);
+  }
+  for (const item of ['IT206.1','IM206','TEM1','A206.1','2.30L/M/R']) {
+    assert.equal(context.parseEquipmentLine(`Equipment ${item} Duct Riser`).item,item);
+  }
+});
+
 test("Cline's categories include wrapped descriptive lines and stop before dimensions", () => {
   const pages=[[
     pdfItem(107,700,"ACTIVITY"),pdfItem(222,700,"DESCRIPTION"),pdfItem(422,700,"QTY"),pdfItem(475,700,"RATE"),pdfItem(523,700,"AMOUNT"),
@@ -382,7 +404,7 @@ test("CSV export keeps wrapped specifications on one physical import row", () =>
   const rows=["CWF","Halton","LTI","Ameri"].map((manufacturer,index)=>({item:String(index+1),manufacturer,model:"Quote 123",qty:"2",spec:"Full specification",price:index===3?"":"123.45",category:"Category "+index}));
   context.editableRows=()=>rows;
   context.converterMode="pdf";
-  assert.deepEqual(plain(context.categoryData()),rows.map(row=>[row.category,Number(row.price||0)*Number(row.qty)]));
+  assert.deepEqual(plain(context.categoryData()),rows.map(row=>[row.category,Number(row.price||0)]));
   for (const row of rows) {
     assert.deepEqual(plain(context.buildExportRow(row)),["D",row.item,0,row.manufacturer,row.model,"2",row.spec,0]);
   }
@@ -445,7 +467,7 @@ test("category export uses printed LTI totals and calculates totals for other un
     ["1.2.1","563.50","1127.00"],["1.6","3245.00","6490.00"],
     ["3","74353.36","817887.00"],["4","0.00","0.00"]]);
   context.editableRows=()=>rows;context.converterMode="pdf";
-  assert.deepEqual(plain(context.categoryData()).map(r=>r[1]),[1127,6490,817887,0]);
+  assert.deepEqual(plain(context.categoryData()).map(r=>r[1]),[563.5,3245,74353.36,0]);
   const saved=context.savedProjectData();
   const reopened=saved.map(r=>context.savedRowToEditable(r));
   assert.deepEqual(plain(reopened.map(r=>context.categoryLineTotal(r))),[1127,6490,817887,0]);
@@ -460,4 +482,17 @@ test("all 22 LTI quote lines export the quoted $1,528,450 total", () => {
   assert.equal(rows.reduce((sum,r)=>sum+context.categoryLineTotal(r),0),1528450);
   assert.equal(rows.filter(r=>Number(r.qty)>1).length,9);
   assert.equal(rows.find(r=>r.item==="2.10").price,"4768.00");
+});
+
+
+test("all factories export unit prices while retaining actual quantities after reopening", () => {
+ context.FACTORIES.clines={manufacturer:"CWF"};
+ const rows=["CWF","Halton","LTI","Ameri"].map(manufacturer=>({manufacturer,item:"1",qty:"3",price:"125.50",lineTotal:"376.50",category:"Equipment",spec:"Equipment",model:"Quote 123"}));
+ context.editableRows=()=>rows;context.converterMode="pdf";
+ assert.deepEqual(plain(context.categoryData()),rows.map(()=>["Equipment",125.5]));
+ assert.deepEqual(rows.map(row=>context.buildExportRow(row)[5]),["3","3","3","3"]);
+ const reopened=context.savedProjectData().map(r=>context.savedRowToEditable(r));
+ context.editableRows=()=>reopened;
+ assert.deepEqual(plain(context.categoryData()),rows.map(()=>["Equipment",125.5]));
+ assert.deepEqual(plain(reopened.map(r=>r.qty)),["3","3","3","3"]);
 });

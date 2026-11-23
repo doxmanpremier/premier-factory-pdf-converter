@@ -4,4 +4,5 @@ import Desk from './desk';
 import './globals.css';
 import './light.css';
 import './workspace-improvements.css';
+import './workflow.css';
 createRoot(document.getElementById('root')!).render(<Desk/>);

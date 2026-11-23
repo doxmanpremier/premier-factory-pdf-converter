@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Premier Convertor/PM Tool",
+  title: "Premier Project Desk",
   description: "Convert Cline's, Halton, and Low Temp Industries factory quote PDFs into AutoQuotes-ready files.",
   icons: {
     icon: "/favicon.svg",

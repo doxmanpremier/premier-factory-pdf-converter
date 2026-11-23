@@ -1,9 +1,11 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
+import {projectScope} from '../lib/stages';
 import {Plus} from 'lucide-react';
 
 export default function QuickAdd({parent,statuses,entries,save,busy}:any){
- const empty={itemnumber:'',name:'',quantity:'1',manufacturer:'',model:'',stage:statuses[0]?.name||''};
+ const quoting=projectScope(entries,parent)==='quoting';
+ const empty={itemnumber:'',name:'',quantity:'1',manufacturer:'',model:'',quote_number:'',stage:statuses[0]?.name||''};
  const [draft,setDraft]=useState(empty),[message,setMessage]=useState('');
  const first=useRef<HTMLInputElement>(null),focusNext=useRef(false);
  useEffect(()=>{if(!busy&&focusNext.current){focusNext.current=false;first.current?.focus();}},[busy]);
@@ -16,6 +18,7 @@ export default function QuickAdd({parent,statuses,entries,save,busy}:any){
   <label>Qty<input aria-label="New item quantity" type="number" min="0" step="any" value={draft.quantity} disabled={busy} onChange={e=>field('quantity',e.target.value)}/></label>
   <label>Manufacturer<input aria-label="New item manufacturer" maxLength={200} list="quick-manufacturers" value={draft.manufacturer} disabled={busy} onChange={e=>field('manufacturer',e.target.value)} placeholder="Manufacturer"/></label>
   <label>Model<input aria-label="New item model" maxLength={200} value={draft.model} disabled={busy} onChange={e=>field('model',e.target.value)} placeholder="Model number"/></label>
+  {quoting&&<label>Quote number<input aria-label="New item quote number" maxLength={100} value={draft.quote_number} disabled={busy} onChange={e=>field('quote_number',e.target.value)} placeholder="Quote number"/></label>}
   <label>Stage<select aria-label="New item stage" value={stage} disabled={busy} onChange={e=>field('stage',e.target.value)}>{statuses.map((s:any)=><option key={s.name}>{s.name}</option>)}</select></label>
   <button className="primary" disabled={busy}><Plus size={16}/>{busy?'Saving…':'Add item'}</button></div>
   <datalist id="quick-categories">{Array.from(new Set<string>(entries.filter((i:any)=>i.kind==='item').map((i:any)=>i.name))).map(v=><option key={v} value={v}/>)}</datalist>

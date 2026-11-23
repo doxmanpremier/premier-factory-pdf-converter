@@ -7,10 +7,25 @@ test('latest note is chosen by creation time within each item, independent of ch
 });
 test('equal creation times use the same deterministic ID tie break as the note feed',()=>{const result=api.latestNotes([{id:'a',kind:'note',parent:'item',content:'First',created:'2026-10-15T10:00:00Z'},{id:'z',kind:'note',parent:'item',content:'Second',created:'2026-10-15T10:00:00Z'}]);assert.equal(result.get('item').id,'z');});
 
-test('item preview always prefers its latest linked email over newer manual notes',()=>{
+test('item preview selects a newer note over older emails, regardless of when emails were logged',()=>{
  const entries=[{id:'note',kind:'note',parent:'a',content:'Newer manual note',created:'2026-10-20T12:00:00Z'},{id:'first-email',kind:'email',parent:'a',content:JSON.stringify({body:'Newer sent date, earlier connection',loggedAt:'2026-10-18T12:00:00Z'}),created:'2026-10-18T12:00:00Z'},{id:'last-email',kind:'email',parent:'a',content:JSON.stringify({body:'Older email logged last',loggedAt:'2026-10-19T12:00:00Z'}),created:'2026-10-01T12:00:00Z'},{id:'b-note',kind:'note',parent:'b',content:'Fallback note',created:'2026-10-19T12:00:00Z'}];
- const result=api.latestItemUpdates(entries);assert.equal(result.get('a').id,'last-email');assert.equal(result.get('b').id,'b-note');assert.equal(result.has('missing'),false);assert.equal(api.latestItemUpdates(entries.filter(e=>e.kind!=='email')).get('a').id,'note');
+ const result=api.latestItemUpdates(entries);assert.equal(result.get('a').id,'note');assert.equal(result.get('b').id,'b-note');assert.equal(result.has('missing'),false);assert.equal(api.latestItemUpdates(entries.filter(e=>e.kind!=='email')).get('a').id,'note');
 });
 test('existing emails without a connection timestamp fall back to email date and stable ID ties',()=>{
  const result=api.latestItemUpdates([{id:'a',kind:'email',parent:'item',content:'{}',created:'2026-10-15T10:00:00Z'},{id:'z',kind:'email',parent:'item',content:'invalid JSON',created:'2026-10-15T10:00:00Z'}]);assert.equal(result.get('item').id,'z');assert.equal(api.emailDetails(result.get('item')).body,'invalid JSON');assert.equal(api.emailDetails({content:JSON.stringify({body:3,loggedAt:'invalid'}),created:'2026-10-01'}).loggedAt,'2026-10-01');
+});
+
+test('newest email replaces older notes and later note replaces that email without crossing items',()=>{
+ const note={id:'note',kind:'note',parent:'a',content:'Called factory',created:'2026-11-01T15:00:00Z'};
+ const email={id:'email',kind:'email',parent:'a',content:JSON.stringify({body:'Factory reply',loggedAt:'2026-11-04T15:00:00Z'}),created:'2026-11-02T15:00:00Z'};
+ assert.equal(api.latestItemUpdates([note,email]).get('a').id,'email');
+ const followup={...note,id:'followup',created:'2026-11-03T15:00:00Z',date:'2026-10-01'};
+ const other={...note,id:'other',parent:'b',created:'2026-11-05T15:00:00Z'};
+ const result=api.latestItemUpdates([note,email,followup,other]);assert.equal(result.get('a').id,'followup');assert.equal(result.get('b').id,'other');
+});
+test('blank and imported notes do not displace emails, and equal timestamps break ties consistently',()=>{
+ const email={id:'a',kind:'email',parent:'item',created:'2026-11-02T15:00:00Z'};
+ const note={id:'z',kind:'note',parent:'item',content:'Actual update',created:email.created};
+ assert.equal(api.latestItemUpdates([email,note]).get('item').id,'z');assert.equal(api.latestItemUpdates([note,email]).get('item').id,'z');
+ assert.equal(api.latestItemUpdates([email,{...note,id:'blank',content:'  ',created:'2026-11-03'},{...note,id:'awarded-import-details:item',created:'2026-11-03'}]).get('item').id,'a');
 });

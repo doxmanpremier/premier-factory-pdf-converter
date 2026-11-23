@@ -1,10 +1,11 @@
 import fs from 'node:fs';import vm from 'node:vm';import ts from 'typescript';import assert from 'node:assert/strict';import test from 'node:test';import {DatabaseSync} from 'node:sqlite';
 const database=new DatabaseSync(':memory:');for(const f of fs.readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort())database.exec(fs.readFileSync('drizzle/'+f,'utf8'));
 const DB={prepare(sql){return {bind(...args){return {first:async()=>database.prepare(sql).get(...args)||null,all:async()=>({results:database.prepare(sql).all(...args)}),run:async()=>database.prepare(sql).run(...args),sql,args};},first:async()=>database.prepare(sql).get()||null,sql,args:[]}},async batch(statements){database.exec('BEGIN');try{const result=statements.map(s=>database.prepare(s.sql).run(...s.args));database.exec('COMMIT');return result;}catch(e){database.exec('ROLLBACK');throw e;}}};
+const downloadAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/file-download.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:downloadAPI});
 const pricingAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/pricing.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:pricingAPI,Intl});
 const scheduleAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/schedule.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:scheduleAPI});
 const stageAPI={};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/stages.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:stageAPI});const API={};const blobs=new Map();const env={DB,BUCKET:{put:async(key,stream)=>blobs.set(key,await new Response(stream).arrayBuffer()),get:async key=>blobs.has(key)?{body:blobs.get(key)}:null,delete:async key=>blobs.delete(key)}};const transfer=[{id:'test-project',parent:null,kind:'folder',name:'Test Project',content:'',created:'2026-10-13T12:00:00.000Z'},...Array.from({length:9},(_,index)=>({id:'test-item-'+index,parent:'test-project',kind:'item',name:'Test equipment '+(index+1),content:'',itemnumber:String(index+1),manufacturer:'Example manufacturer',model:'TEST-'+(index+1),quantity:1,stage:'Pending quote',created:'2026-10-13T12:00:00.000Z'})),{id:'test-status',parent:null,kind:'status',name:'Pending quote',content:'',color:'#bc6454',created:'2026-10-13T12:00:00.000Z'}];
-vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/stages'?stageAPI:n==='../lib/pricing'?pricingAPI:n==='../lib/schedule'?scheduleAPI:transfer,Response,Request,FormData,File,crypto,URL});
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('worker/pm-api.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,{exports:API,require:n=>n==='../lib/file-download'?downloadAPI:n==='../lib/stages'?stageAPI:n==='../lib/pricing'?pricingAPI:n==='../lib/schedule'?scheduleAPI:transfer,Response,Request,FormData,File,crypto,URL});
 const parent=transfer.find(r=>r.kind==='folder').id;const ids=transfer.filter(r=>r.kind==='item').slice(0,5).map(r=>r.id);
 test('bulk line deletion validates every target, removes descendants and preserves shared files',async()=>{
  for(const id of ['delete-job','other-delete-job'])await post({id,kind:'folder',name:'Deletion fixture'});
@@ -26,6 +27,26 @@ test('bulk line deletion validates every target, removes descendants and preserv
  database.prepare("DELETE FROM entries WHERE id IN ('delete-job','other-delete-job','delete-other')").run();
 });
 async function post(v,origin='https://combined.test'){const body=new FormData();if(v.kind==='status'||v.action==='deleteStatus')v={stage_scope:parent,...v};for(const [k,value]of Object.entries(v))body.set(k,value instanceof File?value:String(value));const r=await API.pmPost(new Request('https://combined.test/api/pm/entries',{method:'POST',headers:{origin},body}),env);return {status:r.status,body:await r.json()};}
+test('renamed PDFs download with PDF type and extension while retaining original bytes',async()=>{
+ await post({id:'download-job',kind:'folder',name:'Download fixture'});
+ const payload='%PDF-1.7\noriginal quote bytes';
+ await post({id:'download-quote',kind:'file',parent:'download-job',file:new File([payload],'factory.pdf',{type:'application/pdf'})});
+ await post({id:'download-quote',action:'edit',kind:'file',parent:'download-job',name:'Quote 59354 Rev3'});
+ for(const suffix of ['', '&download=1']){
+  const r=await API.pmFile(new Request('https://combined.test/api/pm/file?id=download-quote'+suffix),env);
+  assert.equal(r.status,200);assert.equal(r.headers.get('Content-Type'),'application/pdf');
+  assert.match(r.headers.get('Content-Disposition'),suffix?/^attachment/:/^inline/);
+  assert.ok(r.headers.get('Content-Disposition').includes('filename="Quote 59354 Rev3.pdf"'));
+  assert.equal(await r.text(),payload);
+ }
+ database.prepare('UPDATE entries SET name=?,mime=? WHERE id=?').run('Vendor’s quote.pdf','application/octet-stream','download-quote');
+ const generic=await API.pmFile(new Request('https://combined.test/api/pm/file?id=download-quote&download=1'),env);
+ assert.equal(generic.headers.get('Content-Type'),'application/pdf');assert.match(generic.headers.get('Content-Disposition'),/filename\*=UTF-8''Vendor%E2%80%99s%20quote.pdf/);assert.equal(await generic.text(),payload);
+ assert.equal(downloadAPI.downloadDetails('Drawing.PDF','application/pdf').filename,'Drawing.PDF');
+ assert.equal(downloadAPI.downloadDetails('Specs','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').filename,'Specs.xlsx');
+ assert.equal(downloadAPI.downloadDetails('unknown.bin',null).type,'application/octet-stream');
+ await post({action:'delete',id:'download-quote'});database.prepare('DELETE FROM entries WHERE id=?').run('download-job');
+});
 test('email screenshot note retains text and image through edit and cleans bytes on removal',async()=>{
  await post({id:'email-job',kind:'folder',name:'Email fixture'});
  const file=new File(['image fixture'],'email.png',{type:'image/png'});
@@ -91,11 +112,16 @@ test('bulk pricing applies per-line percentages and flat amounts with validation
  await apply(['bp-a','bp-b'],{install_mode:'percent',install:'3',markup:'10'});
  const fixedSell=read('bp-a').quoted_total_cents;
  assert.equal((await apply(['bp-a','bp-b'],{post_award_discount:'5'})).status,200);
- assert.equal(read('bp-a').post_award_cost_cents,95000);assert.equal(read('bp-b').post_award_cost_cents,19000);assert.equal(read('bp-a').install_cost_cents,5700);assert.equal(read('bp-a').quoted_total_cents,fixedSell);
+ assert.equal(read('bp-a').post_award_cost_cents,95000);assert.equal(read('bp-b').post_award_cost_cents,19000);assert.equal(read('bp-a').install_cost_cents,4800);assert.equal(read('bp-a').quoted_total_cents,fixedSell);
  const discountSaved=JSON.stringify(read('bp-a'));
  for(const discount of ['-1','101',''])assert.equal((await apply(['bp-a','bp-b'],{post_award_discount:discount})).status,400);
- assert.equal((await apply(['bp-a','bp-c'],{post_award_discount:'5'})).status,400);assert.equal(JSON.stringify(read('bp-a')),discountSaved);
- assert.equal((await apply(['bp-a'],{post_award_discount:'0'})).status,200);assert.equal(read('bp-a').post_award_cost_cents,100000);
+ assert.equal((await apply(['bp-c'],{post_award_discount:'0'})).status,400);assert.equal(JSON.stringify(read('bp-a')),discountSaved);
+ const mixed=await apply(['bp-a','bp-c'],{post_award_discount:'0'});
+ assert.equal(mixed.status,200);assert.equal(mixed.body.count,1);
+ assert.equal(read('bp-a').post_award_cost_cents,100000);
+ assert.equal(read('bp-c').post_award_cost_cents,null);
+ const freightOnly=await apply(['bp-c'],{freight:'25.75',post_award_discount:'0'});
+ assert.equal(freightOnly.status,200);assert.equal(read('bp-c').freight_cost_cents,2575);
  assert.equal((await apply(['bp-b'],{post_award_discount:'100'})).status,200);assert.equal(read('bp-b').post_award_cost_cents,0);
  assert.equal((await post({action:'pricing',id:'bp-a',type:'pricing_update',pricing_mode:'markup',markup_percent:'10',post_award_discount:'5',expected:JSON.stringify(pricingAPI.pricingSnapshot(read('bp-a'))),landed_markup:'yes',request_id:'post-award-discount-test'})).status,200);
  assert.equal(read('bp-a').post_award_cost_cents,95000);assert.equal(read('bp-a').quoted_total_cents,fixedSell);
@@ -153,8 +179,8 @@ test('project document uploads retain their section, filename, bytes and revisio
  assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent=? AND content='project-document:drawings'").get(parent).n,2);
 });
 
-test('item quote PO and drawing files persist and can be reclassified without losing bytes',async()=>{
- for(const section of ['quote','po','drawings']){
+test('item quote PO drawing and acknowledgment files persist and can be reclassified without losing bytes',async()=>{
+ for(const section of ['quote','po','drawings','acknowledgments']){
   const id='item-doc-'+section;
   const result=await post({id,kind:'file',parent:ids[0],content:'item-document:'+section,file:new File(['item bytes'],section+'.pdf',{type:'application/pdf'})});
   assert.equal(result.status,200,JSON.stringify(result.body));
@@ -330,7 +356,7 @@ test('awarding removes only Not carried items and descendants, retaining other p
 });
 test('shared documents save in each chosen item section for files and links and validate before uploading',async()=>{
  const parent='shared-sections';await post({id:parent,kind:'folder',name:'Shared sections'});const selected=['shared-first','shared-second'];for(const id of selected)await post({id,kind:'item',parent,name:'Equipment',itemnumber:'1'});
- for(const document_section of ['','quote','po','drawings'])for(const type of ['file','link']){
+ for(const document_section of ['','quote','po','drawings','acknowledgments'])for(const type of ['file','link']){
   const name=(document_section||'general')+'-'+type+'.pdf';const payload=type==='file'?{file:new File(['shared section bytes'],name)}:{name,url:'https://example.com/'+name};
   const result=await post({action:'bulkDocument',ids:JSON.stringify(selected),document_section,...payload});assert.equal(result.status,200,JSON.stringify(result.body));
   const rows=database.prepare('SELECT * FROM entries WHERE name=?').all(name);assert.equal(rows.length,2);for(const row of rows)assert.equal(row.content,document_section?'item-document:'+document_section:null);
@@ -438,7 +464,7 @@ test('installation percent saves calculated line cost and preserves sell for pos
  const values={action:'pricing',id,type:'pricing_update',unit_cost_cents:'1000',unit_price_cents:'',freight_cost_cents:'100',freight_charge_cents:'',install_cost_cents:'',install_mode:'percent',install_percent:'4',pricing_mode:'markup',markup_percent:'3',landed_markup:'yes',recalculate_sell:'no'};
  async function update(extra={}){return post({...values,expected:JSON.stringify(pricingAPI.pricingSnapshot(current())),request_id:crypto.randomUUID(),...extra});}
  assert.equal((await update()).status,200);assert.equal(current().install_cost_cents,16000);assert.equal(current().quoted_total_cents,438780);
- assert.equal((await update({unit_price_cents:'1030',quoted_total_cents:'4387.80',post_award_cost_cents:'950'})).status,200);assert.equal(current().install_cost_cents,15200);assert.equal(current().quoted_total_cents,438780);
+ assert.equal((await update({unit_price_cents:'1030',quoted_total_cents:'4387.80',post_award_cost_cents:'950'})).status,200);assert.equal(current().install_cost_cents,16000);assert.equal(current().quoted_total_cents,438780);
  assert.equal((await update({unit_price_cents:'1030',quoted_total_cents:'4387.80',post_award_cost_cents:'950',install_percent:'5'})).status,200);assert.equal(current().install_cost_cents,19000);assert.equal(current().quoted_total_cents,441870);
  assert.equal((await post({action:'edit',id,name:current().name,itemnumber:'INS',quantity:2})).status,200);assert.equal(current().install_cost_cents,9500);
  assert.equal((await update({install_mode:'manual',install_cost_cents:'200',pricing_mode:'manual',quoted_total_cents:'4000'})).status,200);assert.equal(current().install_cost_cents,20000);assert.equal(current().install_percent,null);
@@ -449,7 +475,7 @@ test('pricing template rows import costs percentage installation and preserve se
  assert.equal((await post({action:'create',kind:'item',parent,id,itemnumber:row.itemnumber,name:row.name,quantity:row.quantity})).status,200);
  assert.equal((await post({...imp.equipmentImportPricing(row),id,request_id:'template-import-price'})).status,200);
  let old=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(old.install_cost_cents,12000);assert.equal(old.quoted_total_cents,434660);
- const edit=imp.parseEquipmentRows([['Item number','Post-award unit net'],['PRICE-CSV','900']]).rows[0];assert.equal((await post({...imp.equipmentImportPricing(edit,old),id,request_id:'template-post-edit'})).status,200);old=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(old.install_cost_cents,10800);assert.equal(old.quoted_total_cents,434660);
+ const edit=imp.parseEquipmentRows([['Item number','Post-award unit net'],['PRICE-CSV','900']]).rows[0];assert.equal((await post({...imp.equipmentImportPricing(edit,old),id,request_id:'template-post-edit'})).status,200);old=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(old.install_cost_cents,12000);assert.equal(old.quoted_total_cents,434660);
  const qty=imp.parseEquipmentRows([['Item number','Quantity','Pre-award unit net'],['PRICE-CSV','2','1100']]).rows[0],priceForm=imp.equipmentImportPricing(qty,old);
  assert.equal((await post({action:'edit',id,name:old.name,itemnumber:old.itemnumber,quantity:2})).status,200);
  assert.equal((await post({...priceForm,id,request_id:'template-quantity-edit'})).status,200);
@@ -502,4 +528,84 @@ test('completed jobs preserve nested items, custom stages, pricing and documents
  assert.equal((await post({action:'edit',id:'completed-direct',name:'Renamed completed',job_category:'completed'})).status,200);
  assert.equal((await post({action:'jobCategory',id:'completed-direct',job_category:'other'})).status,400);
  await post({action:'delete',id:'completed-direct',delete_contents:'yes'});await post({action:'delete',id:'completed-test-job',delete_contents:'yes'});
+});
+
+test('status timeline records changes atomically and omits unchanged stages',async()=>{
+ await post({id:'audit-job',kind:'folder',name:'Audit fixture',job_category:'awarded'});
+ await post({id:'audit-item',parent:'audit-job',kind:'item',name:'Audit equipment',itemnumber:'1',stage:'Awarded'});
+ assert.equal((await post({action:'status',id:'audit-item',stage:'Installed'})).status,200);
+ let events=database.prepare("SELECT * FROM entries WHERE parent='audit-item' AND kind='status_event'").all();assert.equal(events.length,1);assert.equal(JSON.parse(events[0].content).before,'Awarded');assert.equal(JSON.parse(events[0].content).after,'Installed');
+ await post({action:'status',id:'audit-item',stage:'Installed'});assert.equal(database.prepare("SELECT COUNT(*) AS n FROM entries WHERE parent='audit-item' AND kind='status_event'").get().n,1);
+ assert.equal((await post({action:'status',id:'audit-item',stage:'Awarded'},'https://attacker.test')).status,403);assert.equal(database.prepare("SELECT stage FROM entries WHERE id='audit-item'").get().stage,'Installed');
+});
+test('project ordering persists within its section and rejects stale or foreign lists',async()=>{
+ const category='awarded';
+ const before=database.prepare("SELECT id,order_position FROM entries WHERE owner='premier-workspace' AND parent IS NULL AND kind='folder' AND COALESCE(job_category,'quoting')=?").all(category);
+ for(const id of ['order-project-a','order-project-b'])await post({id,kind:'folder',name:id,job_category:category});
+ await post({id:'order-project-other',kind:'folder',name:'Other',job_category:'quoting'});
+ const ordered=['order-project-b','order-project-a',...before.map(i=>i.id)];
+ for(const ids of [ordered.slice(1),[...ordered,'order-project-other'],[...ordered,ordered[0]],['missing']]){
+  assert.notEqual((await post({action:'reorderProjects',job_category:category,ids:JSON.stringify(ids)})).status,200);
+ }
+ assert.equal((await post({action:'reorderProjects',job_category:category,ids:JSON.stringify(ordered)},'https://attacker.test')).status,403);
+ assert.equal((await post({action:'reorderProjects',job_category:category,ids:JSON.stringify(ordered)})).status,200);
+ const saved=(await API.pmGet(new Request('https://combined.test/api/pm/entries'),env)).json();
+ const rows=await saved;for(const [index,id] of ordered.entries())assert.equal(rows.find(i=>i.id===id).order_position,index);
+ assert.equal(database.prepare('SELECT order_position FROM entries WHERE id=?').get('order-project-other').order_position,null);
+ for(const row of before)database.prepare('UPDATE entries SET order_position=? WHERE id=?').run(row.order_position,row.id);
+ database.prepare("DELETE FROM entries WHERE id IN ('order-project-a','order-project-b','order-project-other')").run();
+});
+test('document order persists independently per item section without changing names dates or revision status',async()=>{
+ await post({id:'doc-order-job',kind:'folder',name:'Fixture'});
+ for(const id of ['doc-order-item','doc-order-other'])await post({id,kind:'item',parent:'doc-order-job',name:'Fixture',itemnumber:id});
+ for(const section of ['quote','po','drawings','acknowledgments']){
+  for(const suffix of ['a','b'])await post({id:'doc-'+section+'-'+suffix,kind:'link',parent:'doc-order-item',content:'item-document:'+section,name:'Fixture '+suffix,url:'https://example.com/'+suffix});
+  const ids=['doc-'+section+'-b','doc-'+section+'-a'];
+  const values={action:'reorderDocuments',parent:'doc-order-item',document_section:'item-document:'+section,ids:JSON.stringify(ids)};
+  const before=database.prepare('SELECT name,created,stage FROM entries WHERE id=?').get(ids[0]);
+  for(const selection of [[ids[0]],[...ids,ids[0]],['missing'],['doc-quote-a','doc-po-a']]){
+   assert.notEqual((await post({...values,ids:JSON.stringify(selection)})).status,200);
+  }
+  assert.equal((await post(values,'https://attacker.test')).status,403);
+  assert.notEqual((await post({...values,parent:'doc-order-other'})).status,200);
+  assert.equal((await post(values)).status,200);
+  for(const [index,id] of ids.entries())assert.equal(database.prepare('SELECT order_position FROM entries WHERE id=?').get(id).order_position,index);
+  assert.deepEqual(database.prepare('SELECT name,created,stage FROM entries WHERE id=?').get(ids[0]),before);
+ }
+ database.prepare("DELETE FROM entries WHERE id LIKE 'doc-%'").run();
+});
+
+test('each document revision saves its own note through rename, ordering, section changes and reload',async()=>{
+ await post({id:'revision-notes-job',kind:'folder',name:'Notes fixture'});
+ await post({id:'revision-notes-item',kind:'item',parent:'revision-notes-job',name:'Freezer',itemnumber:'1'});
+ for(const section of ['quote','po','drawings','acknowledgments']){
+  const id='revnote-'+section;
+  assert.equal((await post({id,kind:'file',parent:'revision-notes-item',content:'item-document:'+section,file:new File(['original bytes'],section+' Rev A.pdf',{type:'application/pdf'})})).status,200);
+  const before=database.prepare('SELECT * FROM entries WHERE id=?').get(id);
+  assert.equal((await post({action:'documentRevisionNote',id,revision_note:'Updated dimensions for '+section})).status,200);
+  assert.equal((await post({action:'edit',id,name:'Renamed '+section+'.pdf',content:'item-document:'+section})).status,200);
+  assert.equal((await post({action:'reorderDocuments',parent:'revision-notes-item',document_section:'item-document:'+section,ids:JSON.stringify([id])})).status,200);
+  const after=database.prepare('SELECT * FROM entries WHERE id=?').get(id);assert.equal(after.revision_note,'Updated dimensions for '+section);assert.equal(after.content,before.content);assert.equal(after.created,before.created);assert.equal(after.key,before.key);
+  assert.equal(await (await API.pmFile(new Request('https://combined.test/api/pm/file?id='+id),env)).text(),'original bytes');
+ }
+ assert.equal((await post({id:'revnote-next',kind:'link',parent:'revision-notes-item',content:'item-document:quote',name:'Quote Rev B',url:'https://example.com/quote',revision_note:'Revised freight'})).status,200);
+ assert.equal(database.prepare('SELECT revision_note FROM entries WHERE id=?').get('revnote-next').revision_note,'Revised freight');
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-next',revision_note:'Updated price'})).status,200);
+ assert.equal(database.prepare('SELECT revision_note FROM entries WHERE id=?').get('revnote-quote').revision_note,'Updated dimensions for quote');
+ const response=await API.pmGet(new Request('https://combined.test/api/pm/entries'),env);const entries=await response.json();assert.equal(entries.find(e=>e.id==='revnote-next').revision_note,'Updated price');
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-next',revision_note:''})).status,200);assert.equal(database.prepare('SELECT revision_note FROM entries WHERE id=?').get('revnote-next').revision_note,null);
+ assert.equal(database.prepare("SELECT count(*) n FROM entries WHERE parent='revision-notes-item' AND kind='note'").get().n,0);
+});
+test('revision notes validate document ownership, section, parent, origin and length before updating',async()=>{
+ for(const id of ['revision-notes-job','revision-notes-item','missing'])assert.notEqual((await post({action:'documentRevisionNote',id,revision_note:'No'})).status,200);
+ database.prepare("INSERT INTO entries (id,owner,parent,kind,name,content,created) VALUES ('revnote-foreign','other','revision-notes-item','link','Foreign','item-document:quote','2026-11-02')").run();
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-foreign',revision_note:'No'})).status,404);
+ await post({id:'revnote-unclassified',kind:'link',parent:'revision-notes-item',name:'Other file',url:'https://example.com/other'});
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-unclassified',revision_note:'No'})).status,400);
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-quote',revision_note:'x'.repeat(2001)})).status,400);
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-quote'})).status,400);
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-quote',revision_note:'No'},'https://attacker.test')).status,403);
+ assert.equal(database.prepare('SELECT revision_note FROM entries WHERE id=?').get('revnote-quote').revision_note,'Updated dimensions for quote');
+ await post({id:'revnote-project-doc',kind:'link',parent:'revision-notes-job',name:'Overall drawings',content:'project-document:drawings',url:'https://example.com/overall'});
+ assert.equal((await post({action:'documentRevisionNote',id:'revnote-project-doc',revision_note:'Project-wide update'})).status,200);
 });

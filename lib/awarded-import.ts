@@ -42,7 +42,7 @@ export function parseAwardedRows(grid:unknown[][]){
    if(Object.keys(pricing).length)row.pricing=pricing;
    row.import_details=notes.join('\n\n');row.accessory_count=parts.length-1;
    if(row.import_details.length>20000)throw Error('Combined specifications exceed 20,000 characters. Split this item before importing.');
-   for(const [field,max] of [['itemnumber',50],['name',300],['manufacturer',200],['model',200]] as const)if(String(row[field]||'').length>max)throw Error(field+' is too long.');
+   for(const [field,max] of [['itemnumber',50],['name',300],['manufacturer',200],['model',200],['quote_number',100]] as const)if(String(row[field]||'').length>max)throw Error(field+' is too long.');
    rows.push(row);
   }catch(e:any){errors.push(`Row ${source}, item ${row.itemnumber}: ${e.message}`);}
   group=null;
@@ -50,7 +50,7 @@ export function parseAwardedRows(grid:unknown[][]){
  grid.slice(start+1).forEach((cells,offset)=>{
   if(cells.every(v=>!String(v??'').trim()))return;
   const source=start+offset+2,item=get(cells,'itemno');
-  if(item){finish();try{const category=get(cells,'category')||get(cells,'spec');if(!category)throw Error('Category or Spec is required.');const qty=number(get(cells,'qty'),'Qty');if(qty<=0)throw Error('Main item Qty must be greater than zero.');group={row:{itemnumber:item,quantity:qty,name:shortAwardedCategory(category),manufacturer:get(cells,'mfr'),model:get(cells,'model')},parts:[cells],source};}catch(e:any){errors.push(`Row ${source}: ${e.message}`);}return;}
+  if(item){finish();try{const category=get(cells,'category')||get(cells,'spec');if(!category)throw Error('Category or Spec is required.');const qty=number(get(cells,'qty'),'Qty');if(qty<=0)throw Error('Main item Qty must be greater than zero.');group={row:{itemnumber:item,quantity:qty,name:shortAwardedCategory(category),manufacturer:get(cells,'mfr'),model:get(cells,'model'),quote_number:get(cells,'quotenumber')||get(cells,'quoteno')||get(cells,'quote')},parts:[cells],source};}catch(e:any){errors.push(`Row ${source}: ${e.message}`);}return;}
   if(!group){errors.push(`Row ${source}: accessory row has no preceding item number.`);return;}
   if(!['spec','model','mfr','spreadsheetnotes','special'].some(k=>get(cells,k))){errors.push(`Row ${source}: unnamed accessory or total row. Remove totals before importing.`);return;}
   group.parts.push(cells);

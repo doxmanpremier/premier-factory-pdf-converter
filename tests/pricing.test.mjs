@@ -5,6 +5,44 @@ test('post-award discount uses pre-award unit net with exact cents and bounds',(
  for(const value of ['', '-1','101','NaN','Infinity'])assert.throws(()=>api.discountedPostAward(100000,value));assert.throws(()=>api.discountedPostAward(null,'5'));
 });
 test('markup is applied to cost, while margin uses customer revenue',()=>{assert.equal(api.markedUpCents(100000,3),103000);assert.equal(api.moneyCents('1030.00'),103000);assert.equal(api.moneyCents(''),null);assert.throws(()=>api.moneyCents('1.999'));assert.throws(()=>api.moneyCents('-1'));const totals=api.itemPricing({id:'a',quantity:1,unit_price_cents:103000,unit_cost_cents:100000},[]);assert.equal(totals.profit,3000);assert.ok(Math.abs(totals.margin-3000/103000)<1e-10);});
+test('quantity changes keep landed cost and markup-based sell current with fixed freight and install',()=>{
+ const item={id:'a',quantity:1,unit_cost_cents:10000,post_award_cost_cents:9000,freight_cost_cents:1000,install_cost_cents:2000,install_mode:'manual',pricing_mode:'markup',markup_percent:10,quoted_total_cents:14300};
+ const updated=api.pricingAfterQuantity(item,2);
+ const totals=api.pricingTotals([updated],[]);
+ assert.equal(updated.unit_cost_cents,10000);
+ assert.equal(totals.landedCost,21000);
+ assert.equal(totals.sell,25300);
+ assert.equal(api.dollars(totals.profit),'$43.00');
+ assert.equal(api.pricingAfterQuantity({...item,pricing_mode:'manual'},2).quoted_total_cents,14300);
+});
+test('lump-sum freight and install count without an equipment unit net',()=>{
+ const equipment={id:'equipment',quantity:1,unit_cost_cents:7600000,post_award_cost_cents:6992000,install_cost_cents:1200000,quoted_total_cents:8976000};
+ const install={id:'install',quantity:3,install_cost_cents:2500000};
+ const freight={id:'freight',freight_cost_cents:100000};
+ assert.equal(api.landedSell(install,2),2550000);
+ assert.equal(api.landedSell(freight,2),102000);
+ const totals=api.pricingTotals([equipment,{...install,quoted_total_cents:api.landedSell(install,2)}],[]);
+ assert.equal(totals.landedCost,10692000);
+ assert.equal(totals.sell,11526000);
+ assert.equal(totals.equipmentCosted,1);
+ assert.equal(totals.markup,2);
+ assert.equal(api.itemPricing({id:'blank'},[]).landedCost,null);
+});
+test('displayed Sell net uses pre-award costs while profit uses active landed costs',()=>{
+ const items=[
+  {id:'equipment',quantity:2,unit_cost_cents:10000,post_award_cost_cents:9000,markup_percent:5,quoted_total_cents:99999},
+  {id:'installation',install_cost_cents:2500,markup_percent:10},
+  {id:'freight',freight_cost_cents:1000},
+  {id:'blank',quantity:1,quoted_total_cents:12345,markup_percent:10},
+ ];
+ const totals=api.pricingTotals(items,[],true);
+ assert.equal(totals.landedCost,21500);
+ assert.equal(totals.sell,24750);
+ assert.equal(totals.priced,3);
+ assert.equal(totals.profit,3250);
+ assert.equal(api.itemPricing(items[3],[],true).total,null);
+ assert.equal(api.itemPricing(items[0],[]).total,99999);
+});
 test('missing price/cost/quantity stay unavailable; zero and fractional quantities remain valid',()=>{assert.equal(api.itemPricing({id:'a',quantity:2},[]).total,null);assert.equal(api.itemPricing({id:'a',quantity:null,unit_price_cents:0},[]).total,null);assert.equal(api.itemPricing({id:'a',quantity:0,unit_price_cents:100,unit_cost_cents:50},[]).total,0);assert.equal(api.itemPricing({id:'a',quantity:1.5,unit_price_cents:199},[]).total,299);assert.equal(api.itemPricing({id:'a',quantity:1,unit_price_cents:0,unit_cost_cents:0},[]).margin,null);});
 test('landed markup includes quantity net freight and install, zero markup and factory filtering',()=>{
  const item={id:'a',manufacturer:'Factory A',quantity:2,unit_cost_cents:100000,freight_cost_cents:10000,install_cost_cents:20000};
@@ -49,4 +87,23 @@ test('pre-award markup stays unchanged by post-award discounts while profit incr
  assert.equal(before.markup,3);assert.equal(after.markup,3);
  assert.equal(before.profit,6900);assert.equal(after.profit,26900);
  assert.throws(()=>api.landedSell({quantity:1,post_award_cost_cents:10000},3),/pre-award/);
+});
+
+test('item net totals extend pre and post separately by quantity without freight or fallback',()=>{
+ assert.deepEqual({...api.itemNetTotals({quantity:3,unit_cost_cents:12345,post_award_cost_cents:11000,freight_cost_cents:900})},{pre:37035,post:33000});
+ assert.deepEqual({...api.itemNetTotals({quantity:2,unit_cost_cents:100,post_award_cost_cents:null})},{pre:200,post:null});
+ assert.deepEqual({...api.itemNetTotals({quantity:0,unit_cost_cents:100,post_award_cost_cents:0})},{pre:0,post:0});
+ assert.deepEqual({...api.itemNetTotals({quantity:null,unit_cost_cents:100,post_award_cost_cents:100})},{pre:null,post:null});
+ assert.deepEqual({...api.itemNetTotals({quantity:1.5,unit_cost_cents:101,post_award_cost_cents:0})},{pre:152,post:0});
+});
+
+test('discount and profit percentages use matching item bases and survive saved cents',()=>{
+ const item={id:'discounted',quantity:3,unit_cost_cents:100000,post_award_cost_cents:88000,quoted_total_cents:330000};
+ assert.equal(api.percentLabel(api.itemDiscountPercent(item)),'12%');
+ const t=api.pricingTotals([item,{id:'sell-only',quoted_total_cents:900000},{id:'blank',quantity:2}],[]);
+ assert.equal(t.discountAmount,36000);assert.equal(t.discountPercent,12);assert.equal(t.discountItems,1);assert.equal(t.profit,66000);assert.equal(t.profitPercent,20);
+ assert.equal(api.itemDiscountPercent({unit_cost_cents:0,post_award_cost_cents:0}),null);
+ assert.equal(api.pricingTotals([],[]).profitPercent,null);
+ const full=api.pricingTotals([item,{id:'other',quantity:1,unit_cost_cents:100000,post_award_cost_cents:100000,quoted_total_cents:100000}],[]);
+ assert.equal(full.discountPercent,9);
 });

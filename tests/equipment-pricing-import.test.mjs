@@ -47,3 +47,11 @@ test('bulk pricing rejects missing and ambiguous items and accepts optional iden
  assert.match(api.bulkPricingIssues(parse([['9',100]]),items,'p')[0],/no matching/);
  assert.equal(api.bulkPricingIssues(parse([['Item number','Net price','Category'],['1',100,'Sink']]),items,'p').length,0);
 });
+test('quote-number header variants preserve leading zeros and blank updates',()=>{
+ for(const header of ['Quote number','Quote #','Quote No.','quote_number']){
+  const result=api.parseEquipmentRows([['Item number','Category',header],['1','Counter','00123'],['2','Sink','']]);
+  assert.deepEqual(Array.from(result.errors),[]);
+  assert.equal(result.rows[0].quote_number,'00123');
+  assert.equal(result.rows[1].quote_number,undefined);
+ }
+});

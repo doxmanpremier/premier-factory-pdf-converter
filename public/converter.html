@@ -128,17 +128,17 @@ td:nth-child(7) textarea { min-width:260px; }
 .converter-tab.active { color:#fff; background:var(--blue); }
 .browne-mode [data-key="price"],.browne-mode [data-key="category"],.browne-mode #priceHeading,.browne-mode #categoryHeading { display:none; }
 @media (max-width:760px) { .brand-bar { min-height:82px; } .premier-brand img { width:54px; height:54px; } .premier-wordmark strong { font-size:20px; } .premier-wordmark small { font-size:6px; } .brand-tool { display:none; } .hero { grid-template-columns:1fr; padding-top:34px; } .results,.projects-panel { padding:16px; } .project-form,.project-meta,.project-tools { grid-template-columns:1fr; } .project-card-head,.projects-panel-head,.quote-bundle-head,.factory-totals-head { align-items:stretch; flex-direction:column; } .quote-item { grid-template-columns:1fr; gap:5px; } .project-search-field,.project-tools-footer { grid-column:auto; } .project-tools-footer { align-items:stretch; flex-direction:column; } .dealer-entry { align-items:stretch; flex-direction:column; } }
-</style></head><body><nav style="display:flex;gap:12px;align-items:center;padding:14px 24px;background:#1b191d;color:white;border-bottom:3px solid #bd1420"><strong style="margin-right:auto">Premier Convertor/PM Tool</strong><a style="color:white;padding:8px 14px;background:#bd1420;border-radius:7px;text-decoration:none" href="/" target="_top">Quote Converter</a><a style="color:white;padding:8px 14px;border:1px solid #77616a;border-radius:7px;text-decoration:none" href="/pm" target="_top">Project Management</a></nav>
+</style></head><body><nav style="display:flex;gap:12px;align-items:center;padding:14px 24px;background:#1b191d;color:white;border-bottom:3px solid #bd1420"><strong style="margin-right:auto">Premier Project Desk</strong><a style="color:white;padding:8px 14px;background:#bd1420;border-radius:7px;text-decoration:none" href="/" target="_top">Quote Converter</a><a style="color:white;padding:8px 14px;border:1px solid #77616a;border-radius:7px;text-decoration:none" href="/pm" target="_top">Project Management</a></nav>
 <main class="shell">
 <header class="brand-bar"><a class="premier-brand" href="https://premierfsg.com/" target="_blank" rel="noopener"><img src="https://premierfsg.com/wp-content/uploads/2024/02/premiere_logomark-chrome.png" alt="Premier Foodservice Group logo"><span class="premier-wordmark"><strong>PREMIER</strong><small>FOODSERVICE GROUP</small></span></a><span class="brand-tool">PROJECT TOOLS</span></header>
 <section class="hero"><div><p class="eyebrow">CUSTOM FACTORY PDF QUOTES</p><h1>Factory Quote Converter</h1><div class="factory-list" aria-label="Supported factories"><span class="factory-pill">Cline's Welding and Fabrication</span><span class="factory-pill">Halton</span><span class="factory-pill">Low Temp Industries</span><span class="factory-pill">AmeriKooler</span></div><p class="subhead">Upload supported factory quote PDFs. The converter identifies each factory, combines the items, and prepares one headerless CSV or Excel file plus a matching category workbook.</p><div class="hero-nav"><button id="pastProjectsButton" class="past-tab" type="button">Past Projects</button><form method="post" action="/logout"><button class="secondary" type="submit">Log Out</button></form></div></div><div class="format-card"><span>A</span> D on every row<span>B</span> Item number<span>C</span> 0 on every row<span>D</span> Manufacturer<span>E</span> Quote / revision / item model<span>F</span> Quantity<span>G</span> Full specifications<span>H</span> 0 on every row</div></section>
 <section id="pastProjectsPanel" class="projects-panel" hidden><div class="projects-panel-head"><div><p class="eyebrow">SAVED FOR REFERENCE</p><h2>Past Projects</h2><p>Search by job name, filter project details, sort by dealer, or export the complete project history.</p></div><button id="closePastProjects" class="secondary" type="button">Close</button></div><div id="factoryTotals" class="factory-totals"><div class="factory-totals-head"><div><h3>Quoted dollars by factory</h3><p>Running totals from saved projects matching the current filters.</p></div></div><table aria-label="Quoted dollar totals by factory"><thead><tr><th>Factory</th><th>Quoted total</th></tr></thead><tbody id="factoryTotalsBody"></tbody><tfoot><tr><td>All factories</td><td id="factoryGrandTotal">$0.00</td></tr></tfoot></table></div><div class="project-tools"><label class="project-search-field" for="projectSearch">Search by job name<input id="projectSearch" type="search" placeholder="Enter a project or job name" autocomplete="off"></label><label for="projectDealerFilter">Dealer<input id="projectDealerFilter" type="text" list="pastDealerOptions" placeholder="All dealers" autocomplete="off"></label><label for="projectEstimatorFilter">Estimator<input id="projectEstimatorFilter" type="text" list="pastEstimatorOptions" placeholder="All estimators" autocomplete="off"></label><label for="projectSalesRepFilter">Sales rep<input id="projectSalesRepFilter" type="text" list="pastSalesRepOptions" placeholder="All sales reps" autocomplete="off"></label><label for="projectBidDateFilter">Bid date<input id="projectBidDateFilter" type="date"></label><label for="projectUploadDateFilter">Upload date<input id="projectUploadDateFilter" type="date"></label><label for="projectSortField">Sort by<select id="projectSortField"><option value="bidDate">Bid date</option><option value="uploadDate">Upload date</option><option value="dealer">Dealer</option><option value="salesRep">Sales rep</option><option value="estimator">Estimator</option></select></label><label for="projectSortDirection">Order<select id="projectSortDirection"><option value="desc">Newest / Z–A</option><option value="asc">Oldest / A–Z</option></select></label><div class="project-tools-footer"><div class="project-tool-buttons"><button id="sortProjectsByDealer" class="secondary" type="button">Sort by Dealer A–Z</button><button id="exportPastProjects" type="button">Export All to Excel</button><button id="clearProjectFilters" class="secondary" type="button">Clear Filters</button></div><p id="projectCount" class="project-count"></p></div><datalist id="pastDealerOptions"></datalist><datalist id="pastEstimatorOptions"></datalist><datalist id="pastSalesRepOptions"></datalist></div><p id="projectMessage" class="project-message" aria-live="polite"></p><div id="pastProjectsList" class="project-list"></div></section>
-<nav class="converter-tabs" aria-label="Quote converter type"><button id="pdfTab" class="converter-tab active" type="button">Factory PDF Quotes</button><button id="browneTab" class="converter-tab" type="button">Browne Excel Quotes</button></nav>
+<nav class="converter-tabs" aria-label="Quote converter type"><button id="pdfTab" class="converter-tab active" type="button">Factory PDF Quotes</button><button id="vitroTab" class="converter-tab" type="button">Vitro Excel Quotes</button><button id="browneTab" class="converter-tab" type="button">Browne Excel Quotes</button></nav>
 <section id="dropZone" class="drop-zone" tabindex="0" role="button" aria-label="Choose one or more PDF quotes"><div class="upload-icon">PDF</div><h2>Drop all factory quotes for this project here</h2><p>Choose one or multiple Cline's, Halton, LTI, and AmeriKooler PDFs. They will export together as one file.</p><label for="fileInput" class="file-label">Choose PDF(s)</label><input id="fileInput" type="file" accept="application/pdf,.pdf" multiple></section>
 <section id="browneDropZone" class="drop-zone" tabindex="0" role="button" aria-label="Choose a Browne Excel quote" hidden><div class="upload-icon">XLS</div><h2>Drop a Browne quote here</h2><p>Choose a Browne Excel quote. It will convert to the five-column KCL CSV format.</p><label for="browneFileInput" class="file-label">Choose Browne Excel Quote</label><input id="browneFileInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"></section>
-<p id="status" class="status" aria-live="polite"></p>
+<section id="vitroDropZone" class="drop-zone" tabindex="0" hidden><h2>Vitro Excel Quotes</h2><p>Choose .xls or .xlsx quotes. Download the same two workbooks with Furniture on every row.</p><input id="vitroFileInput" type="file" accept=".xls,.xlsx" multiple></section><p id="status" class="status" aria-live="polite"></p>
 <section id="quoteBundle" class="quote-bundle" hidden><div class="quote-bundle-head"><div><p class="eyebrow">ONE PROJECT · ONE EXPORT</p><h2>Quotes in this project</h2><p id="quoteBundleSummary"></p></div><div class="quote-bundle-actions"><button id="addAnotherQuote" type="button">+ Add Another PDF</button><button id="startNewProject" class="secondary" type="button">Start New Project</button></div></div><div id="quoteList" class="quote-list"></div></section>
-<section id="results" class="results" hidden><div class="results-head"><div><p class="eyebrow">REVIEW BEFORE DOWNLOADING</p><h2 id="fileName">Extracted items</h2></div><button id="addRow" class="secondary" type="button">+ Add row</button></div><div class="table-wrap"><table><thead><tr><th id="itemHeading">B · Item</th><th id="manufacturerHeading">D · Manufacturer</th><th id="modelHeading">E · Model</th><th id="qtyHeading">F · Qty</th><th id="specHeading">G · Full specifications</th><th id="priceHeading">Unit price</th><th id="categoryHeading">Category workbook</th><th></th></tr></thead><tbody id="rows"></tbody></table></div><div class="actions"><button id="downloadCsv" class="primary-export" type="button">Download CSV + Categories</button><button id="downloadXlsx" class="secondary" type="button">Download Combined Excel (.xlsx)</button></div><p id="exportNote" class="note">The main headerless file exports A-H without pricing. The category workbook has categories in column A and extended line totals in column B, in the exact same row order. You can edit every extracted value before downloading.</p><section class="save-panel"><div class="save-panel-head"><p class="eyebrow">PROJECT REFERENCE</p><h2>Save this project</h2><p>Save all quote rows and project details together so you can find them later under Past Projects.</p></div><div class="project-form"><div class="field full"><label for="projectName">Project name</label><input id="projectName" type="text" maxlength="160" placeholder="Example: New North Middle School" autocomplete="off"></div><div class="field full"><label for="dealerInput">Dealers</label><div class="dealer-entry"><input id="dealerInput" type="text" maxlength="160" list="dealerOptions" placeholder="Search or type a dealer name" autocomplete="off"><button id="addDealer" class="secondary" type="button">Add Dealer</button></div><div id="dealerChips" class="dealer-chips" aria-live="polite"></div><p class="field-hint">Start typing to search the list. Add as many dealers as needed.</p></div><div class="field full"><label for="premierEstimator">Premier estimators</label><div class="dealer-entry"><input id="premierEstimator" type="text" maxlength="160" list="estimatorOptions" placeholder="Search or type an estimator" autocomplete="off"><button id="addEstimator" class="secondary" type="button">Add Estimator</button></div><div id="estimatorChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><label for="premierSalesRep">Premier sales reps</label><div class="dealer-entry"><input id="premierSalesRep" type="text" maxlength="160" list="salesRepOptions" placeholder="Search or type a sales rep" autocomplete="off"><button id="addSalesRep" class="secondary" type="button">Add Sales Rep</button></div><div id="salesRepChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><span class="field-label">Factories in this project</span><div id="projectFactories" class="factory-checks"><label><input type="checkbox" value="Cline's Welding and Fabrication">Cline's Welding and Fabrication</label><label><input type="checkbox" value="Halton">Halton</label><label><input type="checkbox" value="Low Temp Industries">Low Temp Industries</label><label><input type="checkbox" value="AmeriKooler">AmeriKooler</label><label><input type="checkbox" value="Browne USA Foodservice">Browne USA Foodservice</label></div><p class="field-hint">Factories are selected automatically from the uploaded quotes. You can adjust them before saving.</p></div><div class="field"><label for="totalAmount">Total dollar amount</label><input id="totalAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="specificationStatus">Specification</label><select id="specificationStatus"><option>Prime Spec</option><option>Approved Alternate</option><option>Unapproved Alternate</option></select></div><div class="field"><label for="uploadDate">Upload date</label><input id="uploadDate" type="date"></div><div class="field"><label for="bidDate">Bid date</label><input id="bidDate" type="date"></div></div><datalist id="dealerOptions"></datalist><datalist id="estimatorOptions"></datalist><datalist id="salesRepOptions"></datalist><div class="save-actions"><button id="saveProject" type="button">Save Project</button><p id="saveMessage" class="save-message" aria-live="polite"></p></div></section></section>
+<section id="results" class="results" hidden><div class="results-head"><div><p class="eyebrow">REVIEW BEFORE DOWNLOADING</p><h2 id="fileName">Extracted items</h2></div><button id="addRow" class="secondary" type="button">+ Add row</button></div><div class="table-wrap"><table><thead><tr><th id="itemHeading">B · Item</th><th id="manufacturerHeading">D · Manufacturer</th><th id="modelHeading">E · Model</th><th id="qtyHeading">F · Qty</th><th id="specHeading">G · Full specifications</th><th id="priceHeading">Unit price</th><th id="categoryHeading">Category workbook</th><th></th></tr></thead><tbody id="rows"></tbody></table></div><div class="actions"><button id="downloadCsv" class="primary-export" type="button">Download CSV + Categories</button><button id="downloadXlsx" class="secondary" type="button">Download Combined Excel (.xlsx)</button></div><p id="exportNote" class="note">The main headerless file exports A-H without pricing. The category workbook has categories in column A and unit prices in column B, in the exact same row order. You can edit every extracted value before downloading.</p><section class="save-panel"><div class="save-panel-head"><p class="eyebrow">PROJECT REFERENCE</p><h2>Save this project</h2><p>Save all quote rows and project details together so you can find them later under Past Projects.</p></div><div class="project-form"><div class="field full"><label for="projectName">Project name</label><input id="projectName" type="text" maxlength="160" placeholder="Example: New North Middle School" autocomplete="off"></div><div class="field full"><label for="dealerInput">Dealers</label><div class="dealer-entry"><input id="dealerInput" type="text" maxlength="160" list="dealerOptions" placeholder="Search or type a dealer name" autocomplete="off"><button id="addDealer" class="secondary" type="button">Add Dealer</button></div><div id="dealerChips" class="dealer-chips" aria-live="polite"></div><p class="field-hint">Start typing to search the list. Add as many dealers as needed.</p></div><div class="field full"><label for="premierEstimator">Premier estimators</label><div class="dealer-entry"><input id="premierEstimator" type="text" maxlength="160" list="estimatorOptions" placeholder="Search or type an estimator" autocomplete="off"><button id="addEstimator" class="secondary" type="button">Add Estimator</button></div><div id="estimatorChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><label for="premierSalesRep">Premier sales reps</label><div class="dealer-entry"><input id="premierSalesRep" type="text" maxlength="160" list="salesRepOptions" placeholder="Search or type a sales rep" autocomplete="off"><button id="addSalesRep" class="secondary" type="button">Add Sales Rep</button></div><div id="salesRepChips" class="dealer-chips" aria-live="polite"></div></div><div class="field full"><span class="field-label">Factories in this project</span><div id="projectFactories" class="factory-checks"><label><input type="checkbox" value="Cline's Welding and Fabrication">Cline's Welding and Fabrication</label><label><input type="checkbox" value="Halton">Halton</label><label><input type="checkbox" value="Low Temp Industries">Low Temp Industries</label><label><input type="checkbox" value="AmeriKooler">AmeriKooler</label><label><input type="checkbox" value="Vitro">Vitro</label><label><input type="checkbox" value="Browne USA Foodservice">Browne USA Foodservice</label></div><p class="field-hint">Factories are selected automatically from the uploaded quotes. You can adjust them before saving.</p></div><div class="field"><label for="totalAmount">Total dollar amount</label><input id="totalAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="specificationStatus">Specification</label><select id="specificationStatus"><option>Prime Spec</option><option>Approved Alternate</option><option>Unapproved Alternate</option></select></div><div class="field"><label for="uploadDate">Upload date</label><input id="uploadDate" type="date"></div><div class="field"><label for="bidDate">Bid date</label><input id="bidDate" type="date"></div></div><datalist id="dealerOptions"></datalist><datalist id="estimatorOptions"></datalist><datalist id="salesRepOptions"></datalist><div class="save-actions"><button id="saveProject" type="button">Save Project</button><p id="saveMessage" class="save-message" aria-live="polite"></p></div></section></section>
 </main>
 <script>/**
  * @licstart The following is the entire license notice for the
@@ -214,10 +214,12 @@ const FACTORIES = {
   halton:{label:"Halton",manufacturer:"Halton",model:"Custom"},
   lti:{label:"Low Temp Industries",manufacturer:"LTI",model:"Quote"},
   amerikooler:{label:"AmeriKooler",manufacturer:"Ameri",model:"AmeriKooler Quote"},
+  vitro:{label:"Vitro",manufacturer:"Vitro",model:""},
   browne:{label:"Browne USA Foodservice",manufacturer:"Browne USA Foodservice",model:""},
 };
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
+const vitroDropZone=document.getElementById("vitroDropZone"),vitroFileInput=document.getElementById("vitroFileInput");
 const browneDropZone = document.getElementById("browneDropZone");
 const browneFileInput = document.getElementById("browneFileInput");
 const status = document.getElementById("status");
@@ -229,7 +231,7 @@ const pastProjectsList = document.getElementById("pastProjectsList");
 const projectMessage = document.getElementById("projectMessage");
 const saveMessage = document.getElementById("saveMessage");
 document.getElementById("projectDealerFilter").closest("label").insertAdjacentHTML("afterend",'<label for="projectTerritoryFilter">MAFSI territory<select id="projectTerritoryFilter"><option value="">All territories</option><option value="MAFSI 11">MAFSI 11</option><option value="MAFSI 12">MAFSI 12</option><option value="MAFSI 11 & MAFSI 12">Both: MAFSI 11 & 12</option></select></label>');
-document.getElementById("projectTerritoryFilter").closest("label").insertAdjacentHTML("afterend",'<label for="projectFactoryFilter">Factory<select id="projectFactoryFilter"><option value="">All factories</option><option value="Cline\'s Welding and Fabrication">Cline\'s Welding and Fabrication</option><option value="Halton">Halton</option><option value="Low Temp Industries">Low Temp Industries</option><option value="AmeriKooler">AmeriKooler</option><option value="Browne USA Foodservice">Browne USA Foodservice</option></select></label>');
+document.getElementById("projectTerritoryFilter").closest("label").insertAdjacentHTML("afterend",'<label for="projectFactoryFilter">Factory<select id="projectFactoryFilter"><option value="">All factories</option><option value="Cline\'s Welding and Fabrication">Cline\'s Welding and Fabrication</option><option value="Halton">Halton</option><option value="Low Temp Industries">Low Temp Industries</option><option value="AmeriKooler">AmeriKooler</option><option value="Vitro">Vitro</option><option value="Browne USA Foodservice">Browne USA Foodservice</option></select></label>');
 document.getElementById("projectFactories").closest(".field").insertAdjacentHTML("afterend",'<div class="field"><label for="mafsiTerritory">MAFSI territory</label><select id="mafsiTerritory"><option value="">Choose territory</option><option value="MAFSI 11">MAFSI 11</option><option value="MAFSI 12">MAFSI 12</option><option value="MAFSI 11 & MAFSI 12">Both: MAFSI 11 & 12</option></select></div>');
 document.querySelector(".factory-totals-head p").textContent="Running totals for exactly the projects shown by the filters below.";
 const projectSearch = document.getElementById("projectSearch");
@@ -278,6 +280,10 @@ dropZone.addEventListener("click", event => {
 dropZone.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") fileInput.click(); });
 fileInput.addEventListener("change", () => fileInput.files.length && processFiles([...fileInput.files]));
 browneFileInput.addEventListener("change", () => browneFileInput.files.length && processBrowneFile(browneFileInput.files[0]));
+vitroFileInput.addEventListener("change",()=>processVitroFiles([...vitroFileInput.files]));
+document.getElementById("vitroTab").addEventListener("click",()=>setConverterMode("vitro",true));
+["dragenter","dragover","dragleave","drop"].forEach(type=>vitroDropZone.addEventListener(type,e=>{e.preventDefault();vitroDropZone.classList.toggle("drag",type==="dragenter"||type==="dragover");}));
+vitroDropZone.addEventListener("drop",e=>processVitroFiles([...e.dataTransfer.files]));
 document.getElementById("pdfTab").addEventListener("click",()=>setConverterMode("pdf",true));
 document.getElementById("browneTab").addEventListener("click",()=>setConverterMode("browne",true));
 browneDropZone.addEventListener("click",event=>{if(event.target.closest("label,input"))return;browneFileInput.click();});
@@ -288,7 +294,7 @@ browneDropZone.addEventListener("drop",event=>{const file=[...event.dataTransfer
 ["dragenter","dragover"].forEach(type => dropZone.addEventListener(type, e => { e.preventDefault(); dropZone.classList.add("drag"); }));
 ["dragleave","drop"].forEach(type => dropZone.addEventListener(type, e => { e.preventDefault(); dropZone.classList.remove("drag"); }));
 dropZone.addEventListener("drop", e => { const files=[...e.dataTransfer.files]; if (files.length) processFiles(files); });
-document.getElementById("addAnotherQuote").addEventListener("click",()=>fileInput.click());
+document.getElementById("addAnotherQuote").addEventListener("click",()=>(converterMode==="vitro"?vitroFileInput:fileInput).click());
 document.getElementById("startNewProject").addEventListener("click",()=>{
   if (quoteImports.length && !confirm("Start a new project and clear the quotes currently on screen?")) return;
   resetCurrentProject();
@@ -317,6 +323,7 @@ function showPastProjectsView() {
   pastProjectsPanel.hidden=false;
   dropZone.hidden=true;
   browneDropZone.hidden=true;
+  vitroDropZone.hidden=true;
   status.hidden=true;
   quoteBundle.hidden=true;
   results.hidden=true;
@@ -326,6 +333,7 @@ function showProjectView() {
   pastProjectsPanel.hidden=true;
   dropZone.hidden=converterMode!=="pdf";
   browneDropZone.hidden=converterMode!=="browne";
+  vitroDropZone.hidden=converterMode!=="vitro";
   status.hidden=false;
   const hasProjectRows=rowsBody.querySelectorAll("tr").length>0;
   results.hidden=!hasProjectRows;
@@ -334,13 +342,15 @@ function showProjectView() {
 }
 
 function setConverterMode(mode,clearProject=false) {
-  if (mode!=="pdf"&&mode!=="browne") return;
+  if (!["pdf","browne","vitro"].includes(mode)) return;
   if (clearProject&&rowsBody.querySelectorAll("tr").length&&!confirm("Switch converters and clear the project currently on screen?")) return;
   if (clearProject) resetCurrentProject(false);
   converterMode=mode;
   document.body.classList.toggle("browne-mode",mode==="browne");
   document.getElementById("pdfTab").classList.toggle("active",mode==="pdf");
   document.getElementById("browneTab").classList.toggle("active",mode==="browne");
+  document.getElementById("vitroTab").classList.toggle("active",mode==="vitro");
+  vitroDropZone.hidden=mode!=="vitro";
   dropZone.hidden=mode!=="pdf";
   browneDropZone.hidden=mode!=="browne";
   document.getElementById("itemHeading").textContent=mode==="browne"?"A · Item":"B · Item";
@@ -350,7 +360,60 @@ function setConverterMode(mode,clearProject=false) {
   document.getElementById("specHeading").textContent=mode==="browne"?"E · Model number":"G · Full specifications";
   document.getElementById("downloadCsv").textContent=mode==="browne"?"Download Browne KCL CSV":"Download CSV + Categories";
   document.getElementById("downloadXlsx").hidden=mode==="browne";
-  document.getElementById("exportNote").textContent=mode==="browne"?"The headerless CSV exports: item sequence, quantity 1, specification, Browne USA Foodservice, and the Browne item number as the model number.":"The main headerless file exports A-H without pricing. The category workbook has categories in column A and extended line totals in column B, in the exact same row order. You can edit every extracted value before downloading.";
+  document.getElementById("exportNote").textContent=mode==="browne"?"The headerless CSV exports: item sequence, quantity 1, specification, Browne USA Foodservice, and the Browne item number as the model number.":"The main headerless file exports A-H without pricing. The category workbook has categories in column A and net unit prices in column B, in the exact same row order. You can edit every extracted value before downloading.";
+}
+
+
+function extractVitroRows(data,quoteNumber="") {
+ const header=data.findIndex(r=>/^(qty|quantity)$/i.test(String(r[0]||"").trim()));
+ if(header<0)return [];
+ const rows=[];let shared=[],last=null,blank=0;
+ const text=v=>String(v??"").trim();
+ const modelOf=v=>v.match(/model\s*#?\s*(?:model\s+)?([\w-]+)/i)?.[1]||v.match(/^[FB]-\d+\w*|^884\b/i)?.[0]||v.match(/^"?([FB])"?\s+Series/i)?.[1]||"";
+ for(const source of data.slice(header+1)) {
+  const description=source.slice(1,7).map(text).filter(Boolean).join("\n");
+  if(!source.some(v=>text(v))){blank++;continue;}
+  if(/^(qty|quantity)$/i.test(text(source[0]))||/^Page\s+\d+/i.test(text(source[8])))continue;
+  if(source.some(v=>/^Total\s*:/i.test(text(v)))||/^\*\*/.test(description))break;
+  const qty=Number(source[0]);
+  if(text(source[0])&&Number.isFinite(qty)&&qty>0&&description){
+   const charge=/freight|surcharge/i.test(description);
+   const numeric=v=>{const n=Number(text(v).replace(/[$,]/g,""));return text(v)&&Number.isFinite(n)?n:null;};
+   const total=numeric(source[8]),unit=numeric(source[7]);
+   const model=charge?description:modelOf(description)||shared.map(modelOf).find(Boolean)||"";
+   last={item:String(rows.length+1),qty:String(qty),manufacturer:"Vitro",model:[quoteNumber?'Q#'+quoteNumber:"",model].filter(Boolean).join(" / "),spec:[...(charge?[]:shared),description].join("\n"),price:String(unit??(total!==null?total/qty:0)),lineTotal:total===null?"":String(total),category:"Furniture",factoryKey:"vitro"};
+   rows.push(last);blank=0;continue;
+  }
+  if(!description)continue;
+  if(/^(Booths|Waiting Area Booths|Tables|Table Tops|Table Bases|Bases|Chairs|Stools)\s*:?$/i.test(description)){shared=[];last=null;}
+  else if(modelOf(description)||blank>=2){shared=[description];last=null;}
+  else if(last)last.spec+="\n"+description;
+  else shared.push(description);
+  blank=0;
+ }
+ return rows;
+}
+async function processVitroFiles(files){
+ const valid=files.filter(f=>/\.xlsx?$/i.test(f.name));
+ if(!valid.length)return setStatus("Please choose a Vitro .xls or .xlsx quote.",true);
+ setStatus("Reading Vitro quotes...");let added=0;const failures=[];
+ for(const file of valid){try{
+  const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
+  const data=workbook.SheetNames.map(name=>XLSX.utils.sheet_to_json(workbook.Sheets[name],{header:1,raw:true,defval:""})).find(rows=>rows.some(row=>/^(qty|quantity)$/i.test(String(row[0]||"").trim())));
+  if(!data)throw Error("No quantity header was found.");
+  const quoteNumber=String(data.find(r=>/quote\s*#/i.test(String(r[6])))?.[7]||data[8]?.[7]||file.name.match(/\b[A-Z]+\d+-\d+[A-Z]+\b/i)?.[0]||"").trim();
+  const rows=extractVitroRows(data,quoteNumber);if(!rows.length)throw Error("No Vitro item rows were found.");
+  setConverterMode("vitro");currentFactoryKey="vitro";currentDefaultModel="";
+  const totalRow=data.find(r=>r.some(v=>/^Total\s*:/i.test(String(v).trim())));
+  const projectName=String(data[5]?.[0]||"").replace(/^proposal\s*(?:for|-)?\s*/i,"").trim()||file.name.replace(/\.xlsx?$/i,"");
+  const lineSum=rows.reduce((s,r)=>s+categoryLineTotal(r),0);
+  if(typeof totalRow?.[8]==="number"&&Math.abs(totalRow[8]-lineSum)>0.01)failures.push(file.name+": printed grand total differs from item totals; review pricing before export.");
+  quoteImports.push({id:browserUuid(),fileName:file.name,factory:"Vitro",factoryKey:"vitro",model:"",quoteNumber,revision:"",projectName,totalAmount:typeof totalRow?.[8]==="number"?totalRow[8]:rows.reduce((s,r)=>s+categoryLineTotal(r),0),rowCount:rows.length,rows});
+  rows.forEach(addEditableRow);added+=rows.length;
+ }catch(e){failures.push(file.name+": "+e.message);}}
+ vitroFileInput.value="";
+ if(added){updateProjectFromQuotes();results.hidden=false;quoteBundle.hidden=false;results.scrollIntoView({behavior:"smooth",block:"start"});}
+ setStatus((added?'Added '+added+' Vitro rows. Every category is Furniture. ':"")+failures.join(" "),!!failures.length,!failures.length);
 }
 
 async function processBrowneFile(file) {
@@ -911,7 +974,10 @@ function clinesCategoryFromSpec(spec) {
 function parseEquipmentLine(line) {
   const activity=line.match(/(?:^|\s)Equipment\s+(.+)/i);
   if (!activity) return null;
-  const match=activity[1].match(/^(?:(?:Item|Line)\s*)?(?:(?:No|Number)\.?\s*)?[#:\-\s]*[\[(]?((?=[A-Z0-9._\/-]*\d)[A-Z0-9]+(?:[._\/-][A-Z0-9]+)*)[\])]*[.):;,#-]*\s+(.+)$/i);
+  // Factory quotes sometimes omit letters in "Item" (for example Itm#206.1).
+  // Require a separator for shortened labels so actual alphanumeric IDs stay intact.
+  const description=activity[1].replace(/^(?:Itm|Ite|Iem|Tem|It|Im|Ie|Te|Tm|Em)(?=[\s.#:])\.?\s*/i,"Item ");
+  const match=description.match(/^(?:(?:Item|Line)\s*)?(?:(?:No|Number)\.?\s*)?[#:\-\s]*[\[(]?((?=[A-Z0-9._\/-]*\d)[A-Z0-9]+(?:[._\/-][A-Z0-9]+)*)[\])]*[.):;,#-]*\s+(.+)$/i);
   if (!match) return null;
   const item=normalizeItemIdentifier(match[1]);
   return item ? {item,description:match[2]} : null;
@@ -974,8 +1040,8 @@ function resetCurrentProject() {
   rowsBody.innerHTML="";
   sourceBaseName="Factory quote project";
   sourceFileName="";
-  currentFactoryKey="clines";
-  currentDefaultModel=FACTORIES.clines.model;
+  currentFactoryKey=converterMode==="vitro"?"vitro":"clines";
+  currentDefaultModel=FACTORIES[currentFactoryKey].model;
   ["projectName","totalAmount","bidDate"].forEach(id=>{document.getElementById(id).value="";});
   setProjectFactories([]);
   document.getElementById("specificationStatus").value="Prime Spec";
@@ -993,7 +1059,7 @@ function resetCurrentProject() {
 function renderRows(rows) { rowsBody.innerHTML=""; rows.forEach(addEditableRow); }
 function addEditableRow(row={}) {
   const factory=FACTORIES[currentFactoryKey]||FACTORIES.clines;
-  row={item:"",qty:"1",spec:"",category:"",manufacturer:factory.manufacturer,model:currentDefaultModel||factory.model,price:"",factoryKey:currentFactoryKey,...row};
+  row={item:"",qty:"1",spec:"",category:converterMode==="vitro"?"Furniture":"",manufacturer:factory.manufacturer,model:currentDefaultModel||factory.model,price:"",factoryKey:currentFactoryKey,...row};
   const tr=document.createElement("tr");
   tr.dataset.factoryKey=row.factoryKey||currentFactoryKey;
   if (normalizePrice(row.lineTotal)) { tr.dataset.lineTotal=normalizePrice(row.lineTotal); tr.dataset.pricedQty=String(row.qty); tr.dataset.pricedUnit=normalizePrice(row.price); }
@@ -1014,6 +1080,7 @@ function editableRows() {
   return [...rowsBody.querySelectorAll("tr")].map(tr=>{
     const row=Object.fromEntries([...tr.querySelectorAll("[data-key]")].map(input=>[input.dataset.key,input.value.trim()]));
     if (tr.dataset.lineTotal && Number(row.qty)===Number(tr.dataset.pricedQty) && normalizePrice(row.price)===tr.dataset.pricedUnit) row.lineTotal=tr.dataset.lineTotal;
+    if(converterMode==="vitro")row.category="Furniture";
     return row;
   });
 }
@@ -1026,7 +1093,7 @@ function categoryLineTotal(row) {
   const qty=Number(row.qty||1),price=Number(normalizePrice(row.price)||0);
   return Number.isFinite(qty)?Math.round((qty*price+Number.EPSILON)*100)/100:0;
 }
-function categoryData() { return editableRows().map(row=>[row.category,categoryLineTotal(row)]); }
+function categoryData() { return editableRows().map(row=>[row.category,Number(normalizePrice(row.price)||0)]); }
 function savedProjectData() {
   if (converterMode==="browne") return browneTableData().map(row=>row.map(value=>String(value)));
   // Preserve the existing saved-project format, including prices and categories.
@@ -1408,7 +1475,7 @@ function openSavedProject(project) {
   const fallbackFactory=savedFactories.find(label=>Object.values(FACTORIES).some(factory=>factory.label===label))||FACTORIES.clines.label;
   quoteImports=Array.isArray(project.quotes)&&project.quotes.length?project.quotes.map(quote=>({...quote,id:browserUuid(),factoryKey:Object.entries(FACTORIES).find(([,factory])=>factory.label===quote.factory)?.[0]||"clines"})):[{id:browserUuid(),fileName:project.sourceFile||"Saved quote",factory:fallbackFactory,factoryKey:Object.entries(FACTORIES).find(([,factory])=>factory.label===fallbackFactory)?.[0]||"clines",model:project.items?.[0]?.[4]||FACTORIES.clines.model,totalAmount:project.totalAmount,rowCount:project.items.length}];
   const isBrowne=savedFactories.includes(FACTORIES.browne.label);
-  converterMode=isBrowne?"browne":"pdf";
+  converterMode=isBrowne?"browne":savedFactories.includes(FACTORIES.vitro.label)?"vitro":"pdf";
   setConverterMode(converterMode);
   currentFactoryKey=quoteImports.at(-1)?.factoryKey||(isBrowne?"browne":"clines");
   currentDefaultModel=quoteImports.at(-1)?.model||FACTORIES[currentFactoryKey].model;

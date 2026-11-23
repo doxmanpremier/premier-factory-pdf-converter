@@ -39,7 +39,9 @@ next-env.d.ts
 /.wrangler/
 /.sites-runtime/
 /outputs/
+/output/
 /work/
+/tmp/
 /public/pm-bundle.js
 /public/pm-bundle.css
 /public/pm.html

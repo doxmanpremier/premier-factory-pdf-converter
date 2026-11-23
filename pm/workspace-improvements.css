@@ -2,3 +2,5 @@
 /* Hide only equipment data cells; note rows and other tables retain their structure. */
 .schedule-import .schedule-uncertain{background:#fff3d5}.schedule-import .schedule-reviewed{display:flex;gap:10px;align-items:center;margin:14px 0}.schedule-import input[type=checkbox]{width:auto}.schedule-import .schedule-warning{color:#845c15;margin:8px 0}
 @media(max-width:800px){.project-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.selection-toolbar{top:0}.summary-stat strong{font-size:18px}.import-steps{gap:5px;font-size:12px}.import-steps li{padding:7px}.project-progress{gap:4px 10px}}
+
+.project-order{display:inline-flex;gap:4px;flex-shrink:0}.project-order button{display:inline-flex;align-items:center;justify-content:center;padding:6px}.project-order button:disabled{opacity:.35}
